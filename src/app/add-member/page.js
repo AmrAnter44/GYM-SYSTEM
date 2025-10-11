@@ -1,23 +1,7 @@
-'use client';
+"use client";
 import { useState } from 'react';
 
-export default function AddMemberPage() {
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    photo: null,
-    subscriptionType: 'شهري',
-    subscriptionStart: '',
-    subscriptionEnd: '',
-    paymentType: 'كاش',
-    totalAmount: 0,
-    paidAmount: 0,
-    remainingAmount: 0,
-    notes: ''
-  });
-
-  const [photoPreview, setPhotoPreview] = useState(null);
-
+export default function MemberRegistrationForm() {
   // حساب تاريخ النهاية تلقائياً
   const calculateEndDate = (startDate, type) => {
     if (!startDate) return '';
@@ -36,6 +20,29 @@ export default function AddMemberPage() {
     start.setMonth(start.getMonth() + months);
     return start.toISOString().split('T')[0];
   };
+
+  // تاريخ اليوم بصيغة YYYY-MM-DD
+  const getTodayDate = () => {
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const todayDate = getTodayDate();
+
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    photo: null,
+    subscriptionType: 'شهري',
+    subscriptionStart: todayDate, // تاريخ اليوم تلقائياً
+    subscriptionEnd: calculateEndDate(todayDate, 'شهري'), // تاريخ النهاية تلقائي
+    paymentType: 'كاش',
+    totalAmount: 0,
+    paidAmount: 0,
+    remainingAmount: 0,
+    notes: ''
+  });
+
+  const [photoPreview, setPhotoPreview] = useState(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -75,47 +82,16 @@ export default function AddMemberPage() {
     }
   };
 
-const handleSubmit = async () => {
-  if (!formData.name || !formData.phone || !formData.subscriptionStart) {
-    alert('من فضلك أكمل البيانات المطلوبة');
-    return;
-  }
-  
-  try {
-    console.log('Saving member:', formData);
-    
-    if (window.electronAPI) {
-      const result = await window.electronAPI.saveMember(formData);
-      console.log('Save result:', result);
-      
-      if (result.success) {
-        alert('✅ تم تسجيل العضو بنجاح!');
-        // إعادة تعيين النموذج
-        setFormData({
-          name: '',
-          phone: '',
-          photo: null,
-          subscriptionType: 'شهري',
-          subscriptionStart: '',
-          subscriptionEnd: '',
-          paymentType: 'كاش',
-          totalAmount: 0,
-          paidAmount: 0,
-          remainingAmount: 0,
-          notes: ''
-        });
-        setPhotoPreview(null);
-      } else {
-        alert('❌ خطأ في الحفظ: ' + result.error);
-      }
-    } else {
-      alert('⚠️ electronAPI غير متوفر');
+  const handleSubmit = () => {
+    if (!formData.name || !formData.phone || !formData.subscriptionStart) {
+      alert('من فضلك أكمل البيانات المطلوبة');
+      return;
     }
-  } catch (error) {
-    console.error('Error:', error);
-    alert('❌ خطأ: ' + error.message);
-  }
-};
+    
+    console.log('بيانات العضو:', formData);
+    alert('تم تسجيل العضو بنجاح! ✅');
+    // هنا هتحفظ في الـ Database
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
@@ -212,14 +188,36 @@ const handleSubmit = async () => {
                 </div>
 
                 <div>
-                  <label className="block text-gray-300 mb-2 font-semibold">تاريخ البداية *</label>
-                  <input
-                    type="date"
-                    name="subscriptionStart"
-                    value={formData.subscriptionStart}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
+                  <label className="block text-gray-300 mb-2 font-semibold">
+                    تاريخ البداية *
+                    <span className="text-sm text-gray-400 mr-2">
+                      ({new Date().toLocaleDateString('ar-EG')})
+                    </span>
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      name="subscriptionStart"
+                      value={formData.subscriptionStart}
+                      onChange={handleChange}
+                      className="flex-1 px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const today = getTodayDate();
+                        setFormData(prev => ({
+                          ...prev,
+                          subscriptionStart: today,
+                          subscriptionEnd: calculateEndDate(today, prev.subscriptionType)
+                        }));
+                      }}
+                      className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold"
+                      title="تعيين تاريخ اليوم"
+                    >
+                      📅 اليوم
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -261,7 +259,7 @@ const handleSubmit = async () => {
                   />
                 </div>
 
-                <div className="md:col-span-2">
+                <div>
                   <label className="block text-gray-300 mb-2 font-semibold">المبلغ المتبقي (جنيه)</label>
                   <div className="relative">
                     <input

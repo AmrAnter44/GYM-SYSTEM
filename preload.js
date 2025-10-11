@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDashboardStats: () => ipcRenderer.invoke('get-dashboard-stats'),
   exportMembersToExcel: (filters) => ipcRenderer.invoke('export-members-to-excel', filters),
   exportFinancialReport: () => ipcRenderer.invoke('export-financial-report'),
+  getNextMemberId: () => ipcRenderer.invoke('get-next-member-id'), // ← السطر الجديد
 });

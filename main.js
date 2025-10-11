@@ -33,6 +33,7 @@ function setupDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      custom_id TEXT UNIQUE,
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
       photo TEXT,
@@ -53,18 +54,32 @@ function setupDatabase() {
 
 // === IPC Handlers ===
 
+// جلب آخر ID للعضو الجديد
+ipcMain.handle('get-next-member-id', async () => {
+  try {
+    const stmt = db.prepare('SELECT MAX(id) as maxId FROM members');
+    const result = stmt.get();
+    const nextId = (result.maxId || 0) + 1;
+    return { success: true, nextId: nextId };
+  } catch (error) {
+    console.error('Error getting next ID:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // حفظ عضو جديد
 ipcMain.handle('save-member', async (event, memberData) => {
   try {
     const stmt = db.prepare(`
       INSERT INTO members 
-      (name, phone, photo, subscription_type, subscription_start, 
+      (custom_id, name, phone, photo, subscription_type, subscription_start, 
        subscription_end, payment_type, total_amount, paid_amount, 
        remaining_amount, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = stmt.run(
+      memberData.customId || null,
       memberData.name,
       memberData.phone,
       memberData.photo,
@@ -81,6 +96,7 @@ ipcMain.handle('save-member', async (event, memberData) => {
     return { 
       success: true, 
       id: result.lastInsertRowid,
+      customId: memberData.customId,
       message: 'تم إضافة العضو بنجاح'
     };
   } catch (error) {
@@ -116,12 +132,24 @@ ipcMain.handle('get-member', async (event, memberId) => {
   }
 });
 
+// البحث عن عضو بالـ custom_id
+ipcMain.handle('search-by-custom-id', async (event, customId) => {
+  try {
+    const stmt = db.prepare('SELECT * FROM members WHERE custom_id = ?');
+    const member = stmt.get(customId);
+    return { success: true, data: member };
+  } catch (error) {
+    console.error('Error searching by custom ID:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // تحديث عضو
 ipcMain.handle('update-member', async (event, memberId, memberData) => {
   try {
     const stmt = db.prepare(`
       UPDATE members 
-      SET name = ?, phone = ?, photo = ?, subscription_type = ?,
+      SET custom_id = ?, name = ?, phone = ?, photo = ?, subscription_type = ?,
           subscription_start = ?, subscription_end = ?, payment_type = ?,
           total_amount = ?, paid_amount = ?, remaining_amount = ?,
           notes = ?
@@ -129,6 +157,7 @@ ipcMain.handle('update-member', async (event, memberId, memberData) => {
     `);
     
     stmt.run(
+      memberData.customId || null,
       memberData.name,
       memberData.phone,
       memberData.photo,
@@ -219,10 +248,10 @@ ipcMain.handle('search-members', async (event, searchTerm) => {
   try {
     const stmt = db.prepare(`
       SELECT * FROM members 
-      WHERE name LIKE ? OR phone LIKE ?
+      WHERE name LIKE ? OR phone LIKE ? OR custom_id LIKE ?
       ORDER BY created_at DESC
     `);
-    const members = stmt.all(`%${searchTerm}%`, `%${searchTerm}%`);
+    const members = stmt.all(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
     return { success: true, data: members };
   } catch (error) {
     console.error('Error searching members:', error);
@@ -244,8 +273,8 @@ ipcMain.handle('export-members-to-excel', async (event, filters = {}) => {
     }
 
     if (filters.searchTerm) {
-      conditions.push('(name LIKE ? OR phone LIKE ?)');
-      params.push(`%${filters.searchTerm}%`, `%${filters.searchTerm}%`);
+      conditions.push('(name LIKE ? OR phone LIKE ? OR custom_id LIKE ?)');
+      params.push(`%${filters.searchTerm}%`, `%${filters.searchTerm}%`, `%${filters.searchTerm}%`);
     }
 
     if (conditions.length > 0) {
@@ -258,7 +287,7 @@ ipcMain.handle('export-members-to-excel', async (event, filters = {}) => {
     const members = stmt.all(...params);
 
     const excelData = members.map(member => ({
-      'الرقم': member.id,
+      'ID': member.custom_id || member.id,
       'الاسم': member.name,
       'رقم التليفون': member.phone,
       'نوع الاشتراك': member.subscription_type,
@@ -336,7 +365,7 @@ ipcMain.handle('export-financial-report', async () => {
     ];
 
     const membersData = members.map(m => ({
-      'الرقم': m.id,
+      'ID': m.custom_id || m.id,
       'الاسم': m.name,
       'نوع الاشتراك': m.subscription_type,
       'نهاية الاشتراك': m.subscription_end,

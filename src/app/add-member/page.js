@@ -1,16 +1,13 @@
 "use client";
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { compressImage } from '../hooks/optimizedHooks';
 
 export default function MemberRegistrationForm() {
   const router = useRouter();
 
-  // ═══════════════════════════════════════════════════════════
-  // 📅 HELPER FUNCTIONS
-  // ═══════════════════════════════════════════════════════════
-
-  // حساب تاريخ النهاية تلقائياً
-  const calculateEndDate = (startDate, type) => {
+  // Helper functions
+  const calculateEndDate = useCallback((startDate, type) => {
     if (!startDate) return '';
     
     const start = new Date(startDate);
@@ -26,19 +23,15 @@ export default function MemberRegistrationForm() {
     
     start.setMonth(start.getMonth() + months);
     return start.toISOString().split('T')[0];
-  };
+  }, []);
 
-  // تاريخ اليوم بصيغة YYYY-MM-DD
-  const getTodayDate = () => {
+  const getTodayDate = useCallback(() => {
     return new Date().toISOString().split('T')[0];
-  };
+  }, []);
 
-  const todayDate = getTodayDate();
+  const todayDate = useMemo(() => getTodayDate(), [getTodayDate]);
 
-  // ═══════════════════════════════════════════════════════════
-  // 📝 STATE MANAGEMENT
-  // ═══════════════════════════════════════════════════════════
-
+  // State
   const [formData, setFormData] = useState({
     custom_id: '',
     name: '',
@@ -56,17 +49,15 @@ export default function MemberRegistrationForm() {
 
   const [photoPreview, setPhotoPreview] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
 
-  // ═══════════════════════════════════════════════════════════
-  // 🎯 EVENT HANDLERS
-  // ═══════════════════════════════════════════════════════════
-
-  const handleChange = (e) => {
+  // Event Handlers
+  const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setFormData(prev => {
       const updated = { ...prev, [name]: value };
       
-      // تحديث تاريخ النهاية تلقائياً
+      // Auto update end date
       if (name === 'subscriptionStart' || name === 'subscriptionType') {
         updated.subscriptionEnd = calculateEndDate(
           name === 'subscriptionStart' ? value : prev.subscriptionStart,
@@ -74,7 +65,7 @@ export default function MemberRegistrationForm() {
         );
       }
       
-      // حساب المتبقي تلقائياً
+      // Auto calculate remaining
       if (name === 'totalAmount' || name === 'paidAmount') {
         const total = name === 'totalAmount' ? parseFloat(value) || 0 : prev.totalAmount;
         const paid = name === 'paidAmount' ? parseFloat(value) || 0 : prev.paidAmount;
@@ -83,42 +74,56 @@ export default function MemberRegistrationForm() {
       
       return updated;
     });
-  };
+  }, [calculateEndDate]);
 
-  const handlePhotoChange = (e) => {
+  const handlePhotoChange = useCallback(async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      // التحقق من نوع الملف
-      if (!file.type.startsWith('image/')) {
-        alert('⚠️ من فضلك اختر صورة فقط');
-        return;
-      }
+    if (!file) return;
 
-      // التحقق من حجم الملف (أقل من 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert('⚠️ حجم الصورة كبير جداً (أقصى حجم 5MB)');
-        return;
-      }
-
-      setFormData(prev => ({ ...prev, photo: file }));
-      
-      // عرض الصورة
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+    // Validation
+    if (!file.type.startsWith('image/')) {
+      alert('⚠️ من فضلك اختر صورة فقط');
+      return;
     }
-  };
 
-  const handleSubmit = async () => {
-    // التحقق من البيانات المطلوبة
+    if (file.size > 5 * 1024 * 1024) {
+      alert('⚠️ حجم الصورة كبير جداً (أقصى حجم 5MB)');
+      return;
+    }
+
+    try {
+      setIsCompressingImage(true);
+      
+      // Compress image
+      const compressedFile = await compressImage(file, 800, 0.8);
+      setFormData(prev => ({ ...prev, photo: compressedFile }));
+      
+      // Preview
+      const reader = new FileReader();
+      reader.onloadend = () => setPhotoPreview(reader.result);
+      reader.readAsDataURL(compressedFile);
+      
+      // Show compression success
+      const originalSize = (file.size / 1024).toFixed(2);
+      const compressedSize = (compressedFile.size / 1024).toFixed(2);
+      const savings = ((1 - compressedFile.size / file.size) * 100).toFixed(0);
+      
+      console.log(`✅ Image compressed: ${originalSize}KB → ${compressedSize}KB (${savings}% saved)`);
+    } catch (error) {
+      console.error('Image compression error:', error);
+      alert('❌ خطأ في معالجة الصورة');
+    } finally {
+      setIsCompressingImage(false);
+    }
+  }, []);
+
+  const handleSubmit = useCallback(async () => {
+    // Validation
     if (!formData.name || !formData.phone || !formData.subscriptionStart) {
       alert('⚠️ من فضلك أكمل البيانات المطلوبة (الاسم، التليفون، تاريخ البداية)');
       return;
     }
 
-    // التحقق من رقم التليفون
     if (formData.phone.length < 11) {
       alert('⚠️ رقم التليفون غير صحيح');
       return;
@@ -127,7 +132,7 @@ export default function MemberRegistrationForm() {
     setIsSubmitting(true);
 
     try {
-      // تحويل الصورة إلى Base64 إذا كانت موجودة
+      // Convert photo to Base64
       let photoBase64 = null;
       if (formData.photo) {
         const reader = new FileReader();
@@ -152,29 +157,19 @@ export default function MemberRegistrationForm() {
         notes: formData.notes || ''
       };
 
-      console.log('📤 Sending member data:', memberData);
-
       if (typeof window !== 'undefined' && window.electronAPI) {
         const result = await window.electronAPI.addMember(memberData);
 
         if (result.success) {
           alert('✅ تم تسجيل العضو بنجاح!\n\nرقم العضو: ' + (formData.custom_id || result.id));
-          
-          // الانتقال إلى صفحة الأعضاء
-          setTimeout(() => {
-            router.push('/members');
-          }, 1000);
+          setTimeout(() => router.push('/members'), 1000);
         } else {
           alert('❌ خطأ في التسجيل: ' + result.error);
         }
       } else {
-        // للتطوير بدون Electron
         console.log('💾 Member data (Development mode):', memberData);
         alert('✅ تم تسجيل العضو بنجاح (وضع التطوير)!');
-        
-        setTimeout(() => {
-          router.push('/members');
-        }, 1000);
+        setTimeout(() => router.push('/members'), 1000);
       }
 
     } catch (error) {
@@ -183,9 +178,9 @@ export default function MemberRegistrationForm() {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [formData, router]);
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     if (confirm('هل تريد مسح جميع البيانات المدخلة؟')) {
       setFormData({
         custom_id: '',
@@ -203,11 +198,7 @@ export default function MemberRegistrationForm() {
       });
       setPhotoPreview(null);
     }
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  // 🎨 RENDER
-  // ═══════════════════════════════════════════════════════════
+  }, [todayDate, calculateEndDate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
@@ -220,9 +211,14 @@ export default function MemberRegistrationForm() {
           </div>
 
           <div className="space-y-6">
-            {/* ═══ الصورة الشخصية ═══ */}
+            {/* Photo Section */}
             <div className="flex flex-col items-center mb-8">
-              <div className="w-32 h-32 rounded-full bg-gray-700 border-4 border-blue-500 overflow-hidden mb-4 shadow-lg">
+              <div className="w-32 h-32 rounded-full bg-gray-700 border-4 border-blue-500 overflow-hidden mb-4 shadow-lg relative">
+                {isCompressingImage && (
+                  <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
                 {photoPreview ? (
                   <img 
                     src={photoPreview} 
@@ -235,19 +231,20 @@ export default function MemberRegistrationForm() {
                   </div>
                 )}
               </div>
-              <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition shadow-lg">
-                <span>📷 اختر صورة</span>
+              <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition shadow-lg disabled:opacity-50">
+                <span>{isCompressingImage ? '⏳ جاري المعالجة...' : '📷 اختر صورة'}</span>
                 <input 
                   type="file" 
                   accept="image/*"
                   onChange={handlePhotoChange}
+                  disabled={isCompressingImage}
                   className="hidden"
                 />
               </label>
-              <p className="text-xs text-gray-400 mt-2">اختياري (أقصى حجم: 5MB)</p>
+              <p className="text-xs text-gray-400 mt-2">اختياري (سيتم ضغطها تلقائياً)</p>
             </div>
 
-            {/* ═══ رقم ID العضو ═══ */}
+            {/* Custom ID */}
             <div className="bg-blue-900/20 border-2 border-blue-500 rounded-xl p-4 mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-2xl">
@@ -273,7 +270,7 @@ export default function MemberRegistrationForm() {
               </div>
             </div>
 
-            {/* ═══ البيانات الأساسية ═══ */}
+            {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-gray-300 mb-2 font-semibold">
@@ -307,12 +304,11 @@ export default function MemberRegistrationForm() {
               </div>
             </div>
 
-            {/* ═══ بيانات الاشتراك ═══ */}
+            {/* Subscription Info */}
             <div className="bg-gray-750 p-6 rounded-xl border border-gray-600">
               <h3 className="text-xl font-bold text-white mb-4">📋 بيانات الاشتراك</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* نوع الاشتراك */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     نوع الاشتراك
@@ -330,7 +326,6 @@ export default function MemberRegistrationForm() {
                   </select>
                 </div>
 
-                {/* نوع الدفع */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     نوع الدفع
@@ -348,13 +343,9 @@ export default function MemberRegistrationForm() {
                   </select>
                 </div>
 
-                {/* تاريخ البداية */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     تاريخ البداية *
-                    <span className="text-sm text-gray-400 mr-2">
-                      ({new Date().toLocaleDateString('ar-EG')})
-                    </span>
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -383,7 +374,6 @@ export default function MemberRegistrationForm() {
                   </div>
                 </div>
 
-                {/* تاريخ النهاية */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     تاريخ النهاية
@@ -398,7 +388,6 @@ export default function MemberRegistrationForm() {
                   />
                 </div>
 
-                {/* إجمالي المبلغ */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     إجمالي المبلغ (جنيه)
@@ -415,7 +404,6 @@ export default function MemberRegistrationForm() {
                   />
                 </div>
 
-                {/* المبلغ المدفوع */}
                 <div>
                   <label className="block text-gray-300 mb-2 font-semibold">
                     المبلغ المدفوع (جنيه)
@@ -432,7 +420,6 @@ export default function MemberRegistrationForm() {
                   />
                 </div>
 
-                {/* المبلغ المتبقي */}
                 <div className="md:col-span-2">
                   <label className="block text-gray-300 mb-2 font-semibold">
                     المبلغ المتبقي (جنيه)
@@ -464,14 +451,11 @@ export default function MemberRegistrationForm() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    يتم الحساب تلقائياً (الإجمالي - المدفوع)
-                  </p>
                 </div>
               </div>
             </div>
 
-            {/* ═══ الملاحظات ═══ */}
+            {/* Notes */}
             <div>
               <label className="block text-gray-300 mb-2 font-semibold">
                 ملاحظات
@@ -487,13 +471,13 @@ export default function MemberRegistrationForm() {
               />
             </div>
 
-            {/* ═══ أزرار الحفظ ═══ */}
+            {/* Action Buttons */}
             <div className="flex gap-4 pt-4">
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isCompressingImage}
                 className={`flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg ${
-                  isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                  (isSubmitting || isCompressingImage) ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 {isSubmitting ? '⏳ جاري الحفظ...' : '✅ حفظ العضو'}
@@ -501,7 +485,7 @@ export default function MemberRegistrationForm() {
               
               <button
                 onClick={handleReset}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isCompressingImage}
                 className="px-6 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition"
               >
                 🔄 مسح
@@ -509,14 +493,14 @@ export default function MemberRegistrationForm() {
               
               <button
                 onClick={() => router.push('/members')}
-                disabled={isSubmitting}
+                disabled={isSubmitting || isCompressingImage}
                 className="px-6 py-4 bg-red-700 hover:bg-red-600 text-white font-bold rounded-lg transition"
               >
                 ❌ إلغاء
               </button>
             </div>
 
-            {/* تنبيه البيانات المطلوبة */}
+            {/* Warning */}
             <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-4">
               <p className="text-yellow-400 text-sm">
                 <span className="font-bold">⚠️ ملاحظة:</span> الحقول المطلوبة (*): 

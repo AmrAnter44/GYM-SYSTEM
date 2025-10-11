@@ -1,84 +1,100 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useDebounce, LoadingSpinner } from '../hooks/optimizedHooks';
 
 export default function VisitorsPage() {
   const [visitors, setVisitors] = useState([]);
-  const [filteredVisitors, setFilteredVisitors] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedVisitor, setSelectedVisitor] = useState(null);
+  const [loading, setLoading] = useState(true);
   
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     notes: '',
-    recordedBy: '', // اسم الشخص الذي سجل البيانات
+    recordedBy: '',
   });
+
+  // Debounced search
+  const debouncedSearch = useDebounce(searchTerm, 300);
 
   useEffect(() => {
     loadVisitors();
   }, []);
 
-  useEffect(() => {
-    filterVisitors();
-  }, [searchTerm, visitors]);
-
-  const loadVisitors = async () => {
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      try {
+  const loadVisitors = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (typeof window !== 'undefined' && window.electronAPI) {
         const result = await window.electronAPI.getVisitors();
         if (result.success) {
           setVisitors(result.data);
         }
-      } catch (error) {
-        console.error('Error loading visitors:', error);
+      } else {
+        // Dummy data for development
+        const dummyData = [
+          {
+            id: 1,
+            name: 'محمد أحمد',
+            phone: '01012345678',
+            notes: 'مهتم بالاشتراك الشهري',
+            recordedBy: 'أحمد',
+            createdAt: '2025-10-11 14:30:00'
+          },
+          {
+            id: 2,
+            name: 'سارة علي',
+            phone: '01098765432',
+            notes: 'زائرة للمرة الأولى',
+            recordedBy: 'محمد',
+            createdAt: '2025-10-11 15:45:00'
+          }
+        ];
+        setVisitors(dummyData);
       }
-    } else {
-      // بيانات تجريبية للتجربة
-      const dummyData = [
-        {
-          id: 1,
-          name: 'محمد أحمد',
-          phone: '01012345678',
-          notes: 'مهتم بالاشتراك الشهري',
-          recordedBy: 'أحمد',
-          createdAt: '2025-10-11 14:30:00'
-        },
-        {
-          id: 2,
-          name: 'سارة علي',
-          phone: '01098765432',
-          notes: 'زائرة للمرة الأولى',
-          recordedBy: 'محمد',
-          createdAt: '2025-10-11 15:45:00'
-        }
-      ];
-      setVisitors(dummyData);
+    } catch (error) {
+      console.error('Error loading visitors:', error);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const filterVisitors = () => {
-    let filtered = visitors;
+  // Memoized filtered visitors
+  const filteredVisitors = useMemo(() => {
+    let filtered = [...visitors];
 
-    if (searchTerm) {
+    if (debouncedSearch) {
+      const searchLower = debouncedSearch.toLowerCase();
       filtered = filtered.filter(visitor => {
-        const name = visitor.name || '';
+        const name = (visitor.name || '').toLowerCase();
         const phone = visitor.phone || '';
-        const searchLower = searchTerm.toLowerCase();
         
-        return name.toLowerCase().includes(searchLower) || 
-               phone.includes(searchTerm);
+        return name.includes(searchLower) || phone.includes(debouncedSearch);
       });
     }
 
-    // ترتيب حسب الأحدث أولاً
+    // Sort by newest first
     filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    setFilteredVisitors(filtered);
-  };
+    return filtered;
+  }, [visitors, debouncedSearch]);
 
-  const handleSubmit = async () => {
+  // Memoized stats
+  const stats = useMemo(() => {
+    const today = new Date().toDateString();
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    return {
+      total: visitors.length,
+      today: visitors.filter(v => new Date(v.createdAt).toDateString() === today).length,
+      thisWeek: visitors.filter(v => new Date(v.createdAt) >= weekAgo).length
+    };
+  }, [visitors]);
+
+  const handleSubmit = useCallback(async () => {
     if (!formData.name || !formData.phone) {
       alert('من فضلك أدخل الاسم ورقم التليفون');
       return;
@@ -101,7 +117,6 @@ export default function VisitorsPage() {
           alert('❌ خطأ: ' + result.error);
         }
       } else {
-        // للتجربة فقط
         alert('✅ تم تسجيل الزائر بنجاح (تجريبي)');
         setShowAddModal(false);
         resetForm();
@@ -109,9 +124,9 @@ export default function VisitorsPage() {
     } catch (error) {
       alert('❌ خطأ: ' + error.message);
     }
-  };
+  }, [formData, loadVisitors]);
 
-  const handleDelete = async (visitorId) => {
+  const handleDelete = useCallback(async (visitorId) => {
     if (confirm('هل أنت متأكد من حذف هذا الزائر؟')) {
       try {
         if (window.electronAPI) {
@@ -127,9 +142,9 @@ export default function VisitorsPage() {
         alert('❌ خطأ في الحذف: ' + error.message);
       }
     }
-  };
+  }, [loadVisitors]);
 
-  const handleExportToExcel = async () => {
+  const handleExportToExcel = useCallback(async () => {
     try {
       const result = await window.electronAPI.exportVisitorsToExcel({
         searchTerm: searchTerm
@@ -143,23 +158,23 @@ export default function VisitorsPage() {
     } catch (error) {
       alert('❌ خطأ في التصدير: ' + error.message);
     }
-  };
+  }, [searchTerm]);
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setFormData({
       name: '',
       phone: '',
       notes: '',
       recordedBy: ''
     });
-  };
+  }, []);
 
-  const handleViewDetails = (visitor) => {
+  const handleViewDetails = useCallback((visitor) => {
     setSelectedVisitor(visitor);
     setShowDetailsModal(true);
-  };
+  }, []);
 
-  const formatDateTime = (dateString) => {
+  const formatDateTime = useCallback((dateString) => {
     const date = new Date(dateString);
     return date.toLocaleString('ar-EG', {
       year: 'numeric',
@@ -168,9 +183,9 @@ export default function VisitorsPage() {
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
+  }, []);
 
-  const getTimeAgo = (dateString) => {
+  const getTimeAgo = useCallback((dateString) => {
     const now = new Date();
     const past = new Date(dateString);
     const diffMs = now - past;
@@ -182,7 +197,67 @@ export default function VisitorsPage() {
     if (diffMins < 60) return `منذ ${diffMins} دقيقة`;
     if (diffHours < 24) return `منذ ${diffHours} ساعة`;
     return `منذ ${diffDays} يوم`;
-  };
+  }, []);
+
+  const VisitorCard = useCallback(({ visitor }) => (
+    <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-blue-500 transition shadow-lg">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
+            {visitor.name.charAt(0)}
+          </div>
+          <div>
+            <h3 className="text-white font-bold text-lg">{visitor.name}</h3>
+            <p className="text-gray-400 text-sm">{visitor.phone}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Notes */}
+      {visitor.notes && (
+        <div className="bg-gray-750 rounded-lg p-3 mb-4">
+          <p className="text-gray-300 text-sm">{visitor.notes}</p>
+        </div>
+      )}
+
+      {/* Footer Info */}
+      <div className="space-y-2 pt-4 border-t border-gray-700">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-400">سجله:</span>
+          <span className="text-blue-400 font-semibold">{visitor.recordedBy}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-gray-400">التاريخ:</span>
+          <span className="text-gray-300 font-mono">{getTimeAgo(visitor.createdAt)}</span>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={() => handleViewDetails(visitor)}
+          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition text-sm font-semibold"
+        >
+          👁️ عرض
+        </button>
+        <button
+          onClick={() => handleDelete(visitor.id)}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition text-sm"
+        >
+          🗑️
+        </button>
+      </div>
+    </div>
+  ), [handleViewDetails, handleDelete, getTimeAgo]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
@@ -234,27 +309,15 @@ export default function VisitorsPage() {
           <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-700 mt-4">
             <div className="text-center">
               <p className="text-gray-400 text-sm">إجمالي الزوار</p>
-              <p className="text-white text-2xl font-bold">{visitors.length}</p>
+              <p className="text-white text-2xl font-bold">{stats.total}</p>
             </div>
             <div className="text-center">
               <p className="text-gray-400 text-sm">اليوم</p>
-              <p className="text-blue-400 text-2xl font-bold">
-                {visitors.filter(v => {
-                  const today = new Date().toDateString();
-                  const visitorDate = new Date(v.createdAt).toDateString();
-                  return today === visitorDate;
-                }).length}
-              </p>
+              <p className="text-blue-400 text-2xl font-bold">{stats.today}</p>
             </div>
             <div className="text-center">
               <p className="text-gray-400 text-sm">هذا الأسبوع</p>
-              <p className="text-green-400 text-2xl font-bold">
-                {visitors.filter(v => {
-                  const weekAgo = new Date();
-                  weekAgo.setDate(weekAgo.getDate() - 7);
-                  return new Date(v.createdAt) >= weekAgo;
-                }).length}
-              </p>
+              <p className="text-green-400 text-2xl font-bold">{stats.thisWeek}</p>
             </div>
           </div>
         </div>
@@ -268,58 +331,7 @@ export default function VisitorsPage() {
             </div>
           ) : (
             filteredVisitors.map((visitor) => (
-              <div
-                key={visitor.id}
-                className="bg-gray-800 rounded-xl p-6 border border-gray-700 hover:border-blue-500 transition shadow-lg"
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-xl">
-                      {visitor.name.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="text-white font-bold text-lg">{visitor.name}</h3>
-                      <p className="text-gray-400 text-sm">{visitor.phone}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Notes */}
-                {visitor.notes && (
-                  <div className="bg-gray-750 rounded-lg p-3 mb-4">
-                    <p className="text-gray-300 text-sm">{visitor.notes}</p>
-                  </div>
-                )}
-
-                {/* Footer Info */}
-                <div className="space-y-2 pt-4 border-t border-gray-700">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400">سجله:</span>
-                    <span className="text-blue-400 font-semibold">{visitor.recordedBy}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-400">التاريخ:</span>
-                    <span className="text-gray-300 font-mono">{getTimeAgo(visitor.createdAt)}</span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={() => handleViewDetails(visitor)}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition text-sm font-semibold"
-                  >
-                    👁️ عرض
-                  </button>
-                  <button
-                    onClick={() => handleDelete(visitor.id)}
-                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition text-sm"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
+              <VisitorCard key={visitor.id} visitor={visitor} />
             ))
           )}
         </div>

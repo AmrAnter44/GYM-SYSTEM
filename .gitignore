@@ -1,41 +1,79 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Testing
+coverage/
+.nyc_output
 
-# testing
-/coverage
+# Next.js
+.next/
+out/
+build/
+dist/
 
-# next.js
-/.next/
-/out/
-
-# production
+# Production
+/dist
 /build
+*.log
 
-# misc
+# Misc
 .DS_Store
 *.pem
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# debug
+# Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# vercel
-.vercel
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+data/
+backups/
+
+# Exports
+exports/
+*.xlsx
+*.pdf
+
+# Electron
+dist_electron/
+release/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# Package managers
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

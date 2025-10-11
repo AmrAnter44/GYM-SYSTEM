@@ -1,87 +1,72 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useMembers, LoadingSpinner } from '../hooks/optimizedHooks';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    totalMembers: 0,
-    activeMembers: 0,
-    expiredMembers: 0,
-    totalRevenue: 0,
-    pendingPayments: 0,
-    todayJoins: 0
-  });
+  const { members, loading } = useMembers();
 
-  const [recentMembers, setRecentMembers] = useState([]);
-
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-const loadDashboardData = async () => {
-  if (typeof window !== 'undefined' && window.electronAPI) {
-    try {
-      console.log('Loading dashboard data from database...');
-      
-      // جلب جميع الأعضاء
-      const membersResult = await window.electronAPI.getMembers();
-      console.log('Members result:', membersResult);
-      
-      if (membersResult.success) {
-        const allMembers = membersResult.data;
-        
-        // حساب الإحصائيات من البيانات
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-        
-        let activeCount = 0;
-        let expiredCount = 0;
-        let totalRevenue = 0;
-        let pendingPayments = 0;
-        let todayJoins = 0;
-        
-        allMembers.forEach(member => {
-          const endDate = member.subscription_end || member.subscriptionEnd;
-          const isExpired = new Date(endDate) < today;
-          
-          if (isExpired) {
-            expiredCount++;
-          } else {
-            activeCount++;
-          }
-          
-          // حساب الإيرادات
-          const paidAmount = parseFloat(member.paid_amount || member.paidAmount || 0);
-          const remainingAmount = parseFloat(member.remaining_amount || member.remainingAmount || 0);
-          
-          totalRevenue += paidAmount;
-          pendingPayments += remainingAmount;
-          
-          // حساب المنضمين اليوم
-          const createdAt = (member.created_at || member.createdAt || '').split('T')[0];
-          if (createdAt === todayStr) {
-            todayJoins++;
-          }
-        });
-        
-        setStats({
-          totalMembers: allMembers.length,
-          activeMembers: activeCount,
-          expiredMembers: expiredCount,
-          totalRevenue: totalRevenue,
-          pendingPayments: pendingPayments,
-          todayJoins: todayJoins
-        });
-        
-        // جلب آخر 3 أعضاء
-        setRecentMembers(allMembers.slice(0, 3));
-      }
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+  // Memoized statistics
+  const stats = useMemo(() => {
+    if (!members.length) {
+      return {
+        totalMembers: 0,
+        activeMembers: 0,
+        expiredMembers: 0,
+        totalRevenue: 0,
+        pendingPayments: 0,
+        todayJoins: 0
+      };
     }
-  }
-};
 
-  const handleExportFinancialReport = async () => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    let activeCount = 0;
+    let expiredCount = 0;
+    let totalRevenue = 0;
+    let pendingPayments = 0;
+    let todayJoins = 0;
+    
+    members.forEach(member => {
+      const endDate = member.subscription_end || member.subscriptionEnd;
+      const isExpired = new Date(endDate) < today;
+      
+      if (isExpired) {
+        expiredCount++;
+      } else {
+        activeCount++;
+      }
+      
+      // Calculate revenue
+      const paidAmount = parseFloat(member.paid_amount || member.paidAmount || 0);
+      const remainingAmount = parseFloat(member.remaining_amount || member.remainingAmount || 0);
+      
+      totalRevenue += paidAmount;
+      pendingPayments += remainingAmount;
+      
+      // Calculate today's joins
+      const createdAt = (member.created_at || member.createdAt || '').split('T')[0];
+      if (createdAt === todayStr) {
+        todayJoins++;
+      }
+    });
+    
+    return {
+      totalMembers: members.length,
+      activeMembers: activeCount,
+      expiredMembers: expiredCount,
+      totalRevenue: totalRevenue,
+      pendingPayments: pendingPayments,
+      todayJoins: todayJoins
+    };
+  }, [members]);
+
+  // Memoized recent members (top 3)
+  const recentMembers = useMemo(() => {
+    return members.slice(0, 3);
+  }, [members]);
+
+  const handleExportFinancialReport = useCallback(async () => {
     try {
       const result = await window.electronAPI.exportFinancialReport();
       
@@ -93,10 +78,10 @@ const loadDashboardData = async () => {
     } catch (error) {
       alert('❌ خطأ في التصدير: ' + error.message);
     }
-  };
+  }, []);
 
-  const StatCard = ({ icon, title, value, subtitle, color }) => (
-    <div className={`bg-gradient-to-br ${color} rounded-xl p-6 shadow-lg`}>
+  const StatCard = useCallback(({ icon, title, value, subtitle, color }) => (
+    <div className={`bg-gradient-to-br ${color} rounded-xl p-6 shadow-lg transform transition hover:scale-105`}>
       <div className="flex items-center justify-between mb-4">
         <div className="text-4xl">{icon}</div>
         <div className="text-right">
@@ -110,7 +95,15 @@ const loadDashboardData = async () => {
         </div>
       )}
     </div>
-  );
+  ), []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
@@ -135,7 +128,7 @@ const loadDashboardData = async () => {
             icon="✅"
             title="الاشتراكات النشطة"
             value={stats.activeMembers}
-            subtitle={`${((stats.activeMembers / stats.totalMembers) * 100).toFixed(0)}% من الإجمالي`}
+            subtitle={stats.totalMembers > 0 ? `${((stats.activeMembers / stats.totalMembers) * 100).toFixed(0)}% من الإجمالي` : '0% من الإجمالي'}
             color="from-green-600 to-green-700"
           />
           
@@ -178,7 +171,7 @@ const loadDashboardData = async () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <button 
               onClick={() => window.location.href = '/add-member'}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2 transform hover:scale-105"
             >
               <span className="text-2xl">➕</span>
               <span>إضافة عضو جديد</span>
@@ -186,7 +179,7 @@ const loadDashboardData = async () => {
             
             <button 
               onClick={() => window.location.href = '/members'}
-              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2 transform hover:scale-105"
             >
               <span className="text-2xl">📋</span>
               <span>إدارة الأعضاء</span>
@@ -194,17 +187,18 @@ const loadDashboardData = async () => {
             
             <button 
               onClick={handleExportFinancialReport}
-              className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+              className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2 transform hover:scale-105"
             >
               <span className="text-2xl">📊</span>
               <span>تصدير تقرير مالي</span>
             </button>
 
             <button 
-              className="bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+              onClick={() => window.location.href = '/visitors'}
+              className="bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white font-bold py-4 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2 transform hover:scale-105"
             >
-              <span className="text-2xl">🔔</span>
-              <span>التنبيهات</span>
+              <span className="text-2xl">👥</span>
+              <span>الزائرين</span>
             </button>
           </div>
         </div>
@@ -213,49 +207,56 @@ const loadDashboardData = async () => {
         <div className="bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-700">
           <h2 className="text-2xl font-bold text-white mb-4">👤 آخر الأعضاء المسجلين</h2>
           
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-right py-3 px-4 text-gray-300 font-semibold">الاسم</th>
-                  <th className="text-right py-3 px-4 text-gray-300 font-semibold">التليفون</th>
-                  <th className="text-right py-3 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
-                  <th className="text-right py-3 px-4 text-gray-300 font-semibold">المتبقي</th>
-                  <th className="text-right py-3 px-4 text-gray-300 font-semibold">الحالة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentMembers.map((member) => {
-const isExpired = new Date(member.subscription_end || member.subscriptionEnd) < new Date();
-const hasPending = (member.remaining_amount || member.remainingAmount) > 0;
-                  
-                  return (
-                    <tr key={member.id} className="border-b border-gray-700 hover:bg-gray-750 transition">
-<td className="py-3 px-4 text-white">{member.name}</td>
-<td className="py-3 px-4 text-gray-300">{member.phone}</td>
-<td className="py-3 px-4 text-gray-300">{member.subscription_end || member.subscriptionEnd}</td>
-<td className="py-3 px-4">
-  <span className={`font-bold ${hasPending ? 'text-red-400' : 'text-green-400'}`}>
-    {member.remaining_amount || member.remainingAmount} ج.م
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {isExpired ? (
-                          <span className="bg-red-900/50 text-red-400 px-3 py-1 rounded-full text-sm">
-                            منتهي
+          {recentMembers.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-6xl mb-4">👥</div>
+              <p className="text-gray-400">لا يوجد أعضاء مسجلين بعد</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="text-right py-3 px-4 text-gray-300 font-semibold">الاسم</th>
+                    <th className="text-right py-3 px-4 text-gray-300 font-semibold">التليفون</th>
+                    <th className="text-right py-3 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
+                    <th className="text-right py-3 px-4 text-gray-300 font-semibold">المتبقي</th>
+                    <th className="text-right py-3 px-4 text-gray-300 font-semibold">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentMembers.map((member) => {
+                    const isExpired = new Date(member.subscription_end || member.subscriptionEnd) < new Date();
+                    const hasPending = (member.remaining_amount || member.remainingAmount) > 0;
+                    
+                    return (
+                      <tr key={member.id} className="border-b border-gray-700 hover:bg-gray-750 transition">
+                        <td className="py-3 px-4 text-white">{member.name}</td>
+                        <td className="py-3 px-4 text-gray-300">{member.phone}</td>
+                        <td className="py-3 px-4 text-gray-300">{member.subscription_end || member.subscriptionEnd}</td>
+                        <td className="py-3 px-4">
+                          <span className={`font-bold ${hasPending ? 'text-red-400' : 'text-green-400'}`}>
+                            {member.remaining_amount || member.remainingAmount} ج.م
                           </span>
-                        ) : (
-                          <span className="bg-green-900/50 text-green-400 px-3 py-1 rounded-full text-sm">
-                            نشط
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {isExpired ? (
+                            <span className="bg-red-900/50 text-red-400 px-3 py-1 rounded-full text-sm">
+                              منتهي
+                            </span>
+                          ) : (
+                            <span className="bg-green-900/50 text-green-400 px-3 py-1 rounded-full text-sm">
+                              نشط
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="mt-4 text-center">
             <button 
@@ -264,11 +265,9 @@ const hasPending = (member.remaining_amount || member.remainingAmount) > 0;
             >
               عرض جميع الأعضاء ←
             </button>
-            
           </div>
         </div>
       </div>
     </div>
-    
   );
 }

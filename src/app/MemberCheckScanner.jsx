@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 
 export default function MemberCheckScanner() {
   const [showModal, setShowModal] = useState(false);
@@ -7,113 +7,134 @@ export default function MemberCheckScanner() {
   const [isChecking, setIsChecking] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [showResult, setShowResult] = useState(false);
+  
+  // Web Worker للبحث السريع
+  const workerRef = useRef(null);
 
-  const playSuccessSound = () => {
+  // تهيئة Web Worker
+  useMemo(() => {
+    if (typeof window !== 'undefined' && !workerRef.current) {
+      try {
+        workerRef.current = new Worker('/workers/searchWorker.js');
+      } catch (error) {
+        console.error('Web Worker not supported:', error);
+      }
+    }
+  }, []);
+
+  const playSuccessSound = useCallback(() => {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
-    // نغمة أولى مرتفعة
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.connect(gain1);
-    gain1.connect(audioContext.destination);
-    osc1.frequency.value = 880; // A5
-    osc1.type = 'sine';
-    gain1.gain.setValueAtTime(0.6, audioContext.currentTime);
-    gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-    osc1.start(audioContext.currentTime);
-    osc1.stop(audioContext.currentTime + 0.3);
-    
-    // نغمة تانية أعلى بعد شوية
-    setTimeout(() => {
-      const osc2 = audioContext.createOscillator();
-      const gain2 = audioContext.createGain();
-      osc2.connect(gain2);
-      gain2.connect(audioContext.destination);
-      osc2.frequency.value = 1108.73; // C#6
-      osc2.type = 'sine';
-      gain2.gain.setValueAtTime(0.7, audioContext.currentTime);
-      gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-      osc2.start(audioContext.currentTime);
-      osc2.stop(audioContext.currentTime + 0.4);
-    }, 150);
-    
-    // نغمة تالتة أعلى
-    setTimeout(() => {
-      const osc3 = audioContext.createOscillator();
-      const gain3 = audioContext.createGain();
-      osc3.connect(gain3);
-      gain3.connect(audioContext.destination);
-      osc3.frequency.value = 1318.51; // E6
-      osc3.type = 'sine';
-      gain3.gain.setValueAtTime(0.8, audioContext.currentTime);
-      gain3.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-      osc3.start(audioContext.currentTime);
-      osc3.stop(audioContext.currentTime + 0.5);
-    }, 300);
-  };
+    const playTone = (freq, delay, duration) => {
+      setTimeout(() => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.6, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+        osc.start(audioContext.currentTime);
+        osc.stop(audioContext.currentTime + duration);
+      }, delay);
+    };
 
-  const playErrorSound = () => {
+    playTone(880, 0, 0.3);
+    playTone(1108.73, 150, 0.4);
+    playTone(1318.51, 300, 0.5);
+  }, []);
+
+  const playErrorSound = useCallback(() => {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
-    // صوت خطأ قوي ومميز
-    const osc1 = audioContext.createOscillator();
-    const gain1 = audioContext.createGain();
-    osc1.connect(gain1);
-    gain1.connect(audioContext.destination);
-    osc1.frequency.value = 400;
-    osc1.type = 'square';
-    gain1.gain.setValueAtTime(0.7, audioContext.currentTime);
-    gain1.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
-    osc1.start(audioContext.currentTime);
-    osc1.stop(audioContext.currentTime + 0.15);
-    
-    // نغمة منخفضة تانية
-    setTimeout(() => {
-      const osc2 = audioContext.createOscillator();
-      const gain2 = audioContext.createGain();
-      osc2.connect(gain2);
-      gain2.connect(audioContext.destination);
-      osc2.frequency.value = 300;
-      osc2.type = 'square';
-      gain2.gain.setValueAtTime(0.7, audioContext.currentTime);
-      gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
-      osc2.start(audioContext.currentTime);
-      osc2.stop(audioContext.currentTime + 0.15);
-    }, 150);
-    
-    // نغمة تالتة للتأكيد
-    setTimeout(() => {
-      const osc3 = audioContext.createOscillator();
-      const gain3 = audioContext.createGain();
-      osc3.connect(gain3);
-      gain3.connect(audioContext.destination);
-      osc3.frequency.value = 250;
-      osc3.type = 'square';
-      gain3.gain.setValueAtTime(0.8, audioContext.currentTime);
-      gain3.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      osc3.start(audioContext.currentTime);
-      osc3.stop(audioContext.currentTime + 0.3);
-    }, 300);
-  };
+    const playTone = (freq, delay, duration) => {
+      setTimeout(() => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.frequency.value = freq;
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.7, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+        osc.start(audioContext.currentTime);
+        osc.stop(audioContext.currentTime + duration);
+      }, delay);
+    };
 
-  const handleOpenModal = () => {
+    playTone(400, 0, 0.15);
+    playTone(300, 150, 0.15);
+    playTone(250, 300, 0.3);
+  }, []);
+
+  const handleOpenModal = useCallback(() => {
     setShowModal(true);
     setSearchValue('');
     setScanResult(null);
     setShowResult(false);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setShowModal(false);
     setSearchValue('');
     setScanResult(null);
     setShowResult(false);
-  };
+  }, []);
 
-  const checkMember = async () => {
-    if (!searchValue.trim()) {
+  const processMemberResult = useCallback((member) => {
+    if (!member) {
+      playErrorSound();
+      setScanResult({
+        success: false,
+        message: '❌ عضو غير موجود',
+        details: 'لم يتم العثور على عضو بهذا الاسم أو الرقم'
+      });
+      setShowResult(true);
       return;
     }
+
+    const endDate = new Date(member.subscription_end || member.subscriptionEnd);
+    const today = new Date();
+    const isExpired = endDate < today;
+    const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+
+    if (isExpired) {
+      playErrorSound();
+      setScanResult({
+        success: false,
+        name: member.name,
+        id: member.custom_id || member.id,
+        message: '⚠️ اشتراك منتهي',
+        details: `انتهى منذ ${Math.abs(daysLeft)} يوم`,
+        phone: member.phone,
+        endDate: member.subscription_end || member.subscriptionEnd,
+        subscriptionType: member.subscription_type || member.subscriptionType
+      });
+    } else {
+      playSuccessSound();
+      const warningDays = 7;
+      setScanResult({
+        success: true,
+        name: member.name,
+        id: member.custom_id || member.id,
+        message: '✅ اشتراك صالح',
+        details: daysLeft <= warningDays
+          ? `⏰ ينتهي خلال ${daysLeft} يوم` 
+          : `صالح لمدة ${daysLeft} يوم`,
+        phone: member.phone,
+        endDate: member.subscription_end || member.subscriptionEnd,
+        subscriptionType: member.subscription_type || member.subscriptionType,
+        warning: daysLeft <= warningDays
+      });
+    }
+    
+    setShowResult(true);
+    setSearchValue('');
+  }, [playSuccessSound, playErrorSound]);
+
+  const checkMember = useCallback(async () => {
+    if (!searchValue.trim()) return;
 
     setIsChecking(true);
 
@@ -135,62 +156,31 @@ export default function MemberCheckScanner() {
       if (result.success) {
         const searchTerm = searchValue.trim().toLowerCase();
         
-        // البحث بالـ ID أو الاسم
-        const member = result.data.find(m => {
-          const matchId = String(m.id) === searchTerm || String(m.custom_id) === searchTerm;
-          const matchName = m.name.toLowerCase().includes(searchTerm);
-          return matchId || matchName;
-        });
-
-        if (!member) {
-          playErrorSound();
-          setScanResult({
-            success: false,
-            message: '❌ عضو غير موجود',
-            details: 'لم يتم العثور على عضو بهذا الاسم أو الرقم'
+        // استخدام Web Worker للبحث السريع
+        if (workerRef.current) {
+          workerRef.current.postMessage({
+            members: result.data,
+            searchTerm: searchTerm
           });
-          setShowResult(true);
-          setIsChecking(false);
-          return;
-        }
 
-        const endDate = new Date(member.subscription_end || member.subscriptionEnd);
-        const today = new Date();
-        const isExpired = endDate < today;
-        const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-
-        if (isExpired) {
-          playErrorSound();
-          setScanResult({
-            success: false,
-            name: member.name,
-            id: member.custom_id || member.id,
-            message: '⚠️ اشتراك منتهي',
-            details: `انتهى منذ ${Math.abs(daysLeft)} يوم`,
-            phone: member.phone,
-            endDate: member.subscription_end || member.subscriptionEnd,
-            subscriptionType: member.subscription_type || member.subscriptionType
-          });
+          workerRef.current.onmessage = (e) => {
+            const { success, result: member } = e.data;
+            if (success) {
+              processMemberResult(member);
+            }
+            setIsChecking(false);
+          };
         } else {
-          playSuccessSound();
-          const warningDays = 7;
-          setScanResult({
-            success: true,
-            name: member.name,
-            id: member.custom_id || member.id,
-            message: '✅ اشتراك صالح',
-            details: daysLeft <= warningDays
-              ? `⏰ ينتهي خلال ${daysLeft} يوم` 
-              : `صالح لمدة ${daysLeft} يوم`,
-            phone: member.phone,
-            endDate: member.subscription_end || member.subscriptionEnd,
-            subscriptionType: member.subscription_type || member.subscriptionType,
-            warning: daysLeft <= warningDays
+          // Fallback: البحث العادي بدون Worker
+          const member = result.data.find(m => {
+            const matchId = String(m.id) === searchTerm || String(m.custom_id) === searchTerm;
+            const matchName = m.name.toLowerCase().includes(searchTerm);
+            return matchId || matchName;
           });
+          
+          processMemberResult(member);
+          setIsChecking(false);
         }
-        
-        setShowResult(true);
-        setSearchValue('');
       }
     } catch (error) {
       console.error('Error checking member:', error);
@@ -201,16 +191,15 @@ export default function MemberCheckScanner() {
         details: error.message
       });
       setShowResult(true);
-    } finally {
       setIsChecking(false);
     }
-  };
+  }, [searchValue, playErrorSound, processMemberResult]);
 
-  const handleKeyPress = (e) => {
+  const handleKeyPress = useCallback((e) => {
     if (e.key === 'Enter' && searchValue.trim()) {
       checkMember();
     }
-  };
+  }, [searchValue, checkMember]);
 
   return (
     <>
@@ -220,6 +209,7 @@ export default function MemberCheckScanner() {
           onClick={handleOpenModal}
           className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-3xl transition-all transform hover:scale-110 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
           title="تشيك على عضو"
+          aria-label="فتح ماسح العضوية"
         >
           🔍
         </button>

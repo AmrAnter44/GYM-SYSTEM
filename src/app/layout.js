@@ -1,5 +1,5 @@
 import './globals.css'
-
+import MemberCheckScanner from './MemberCheckScanner'
 export const metadata = {
   title: 'نظام إدارة الجيم',
   description: 'نظام متكامل لإدارة الجيم والأعضاء',
@@ -28,6 +28,7 @@ export default function RootLayout({ children }) {
                 <NavLink href="/" icon="🏠" label="الرئيسية" />
                 <NavLink href="/add-member" icon="➕" label="إضافة عضو جديد" />
                 <NavLink href="/members" icon="👥" label="إدارة المشتركين" />
+                <NavLink href="/visitors" icon="👥" label="الزائرين" />
               </ul>
             </nav>
 
@@ -41,6 +42,7 @@ export default function RootLayout({ children }) {
           <main className="flex-1 overflow-auto">
             {children}
           </main>
+                    <MemberCheckScanner />
         </div>
       </body>
     </html>

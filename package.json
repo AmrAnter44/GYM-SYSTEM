@@ -1,25 +1,47 @@
 {
   "name": "gym-management-system",
   "version": "1.0.0",
-  "description": "نظام إدارة الجيم - Desktop App",
+  "description": "Gym Management System with Electron and Next.js",
   "main": "main.js",
   "scripts": {
     "dev": "next dev -p 4001",
     "build": "next build",
-    "export": "next export",
-    "start": "next start",
-    "lint": "next lint",
+    "start": "concurrently \"next dev -p 4001\" \"wait-on http://localhost:4001 && electron .\"",
     "electron": "electron .",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4001 && electron .\"",
-    "pack": "npm run build && npm run export && electron-builder --dir",
-    "dist": "npm run build && npm run export && electron-builder",
-    "dist-win": "npm run build && npm run export && electron-builder --win --x64"
+    "pack": "electron-builder --dir",
+    "dist": "next build && electron-builder"
+  },
+  "keywords": [
+    "gym",
+    "management",
+    "electron",
+    "nextjs"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "electron": "^27.0.0",
+    "exceljs": "^4.4.0",
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^8.2.2",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
+    "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.gym.management",
-    "productName": "نظام إدارة الجيم",
+    "productName": "Gym Management System",
     "directories": {
-      "output": "release"
+      "output": "dist"
     },
     "files": [
       "main.js",
@@ -28,42 +50,16 @@
       "node_modules/**/*"
     ],
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "assets/icon.ico"
+      "target": "nsis",
+      "icon": "icon.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.png"
     }
-  },
-  "dependencies": {
-    "better-sqlite3": "^12.4.1",
-    "electron-squirrel-startup": "^1.0.1",
-    "next": "^14.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.14",
-    "autoprefixer": "^10.4.21",
-    "concurrently": "^8.2.2",
-    "electron": "^38.2.2",
-    "electron-builder": "^24.13.3",
-    "electron-rebuild": "^3.2.9",
-    "eslint": "^8",
-    "eslint-config-next": "14.0.0",
-    "postcss": "^8",
-    "tailwindcss": "^4.1.14",
-    "wait-on": "^7.2.0"
   }
 }

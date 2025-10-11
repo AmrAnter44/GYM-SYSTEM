@@ -38,37 +38,37 @@ export default function MembersManagement() {
     }
   };
 
-const filterMembers = () => {
-  let filtered = members;
+  const filterMembers = () => {
+    let filtered = members;
 
-  // Search filter - دعم الحقول المختلفة
-  if (searchTerm) {
-    filtered = filtered.filter(member => {
-      const name = member.name || '';
-      const phone = member.phone || '';
-      const searchLower = searchTerm.toLowerCase();
-      
-      return name.toLowerCase().includes(searchLower) || 
-             phone.includes(searchTerm);
-    });
-  }
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(member => {
+        const name = member.name || '';
+        const phone = member.phone || '';
+        const searchLower = searchTerm.toLowerCase();
+        
+        return name.toLowerCase().includes(searchLower) || 
+               phone.includes(searchTerm);
+      });
+    }
 
-  // Status filter - دعم الحقول المختلفة
-  if (filterStatus !== 'all') {
-    filtered = filtered.filter(member => {
-      const endDate = member.subscription_end || member.subscriptionEnd;
-      if (!endDate) return false;
-      
-      const isExpired = new Date(endDate) < new Date();
-      
-      if (filterStatus === 'active') return !isExpired;
-      if (filterStatus === 'expired') return isExpired;
-      return true;
-    });
-  }
+    // Status filter
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(member => {
+        const endDate = member.subscription_end || member.subscriptionEnd;
+        if (!endDate) return false;
+        
+        const isExpired = new Date(endDate) < new Date();
+        
+        if (filterStatus === 'active') return !isExpired;
+        if (filterStatus === 'expired') return isExpired;
+        return true;
+      });
+    }
 
-  setFilteredMembers(filtered);
-};
+    setFilteredMembers(filtered);
+  };
 
   const handleViewDetails = (member) => {
     setSelectedMember(member);
@@ -86,7 +86,7 @@ const filterMembers = () => {
       try {
         const result = await window.electronAPI.deleteMember(memberId);
         if (result.success) {
-          loadMembers(); // إعادة تحميل القائمة
+          loadMembers();
           alert('✅ تم حذف العضو بنجاح');
         } else {
           alert('❌ خطأ: ' + result.error);
@@ -295,22 +295,20 @@ const filterMembers = () => {
             <table className="w-full">
               <thead className="bg-gray-750">
                 <tr>
-
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">الاسم</th>
-                                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">التليفون</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">نوع الاشتراك</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">الحالة</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">المتبقي</th>
                   <th className="text-center py-4 px-4 text-gray-300 font-semibold">الإجراءات</th>
-
                 </tr>
               </thead>
               <tbody>
                 {filteredMembers.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-8 text-gray-400">
+                    <td colSpan="8" className="text-center py-8 text-gray-400">
                       لا يوجد أعضاء
                     </td>
                   </tr>
@@ -332,15 +330,11 @@ const filterMembers = () => {
                             <span className="text-white font-medium">{member.name}</span>
                           </div>
                         </td>
-                                                <td className="py-4 px-4 text-gray-300 font-mono font-bold">
-  {member.custom_id || member.id}
-</td>
+                        <td className="py-4 px-4 text-blue-400 font-mono font-bold">
+                          {member.custom_id || member.id}
+                        </td>
                         <td className="py-4 px-4 text-gray-300">{member.phone}</td>
-
                         <td className="py-4 px-4 text-gray-300">{subType}</td>
-                        <td className="py-4 px-4 text-gray-300 font-mono font-bold">
-                            {member.custom_id || member.id}
-                          </td>
                         <td className="py-4 px-4">
                           <div>
                             <p className="text-white">{subEnd}</p>

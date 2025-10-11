@@ -18,25 +18,62 @@ export default function Dashboard() {
   }, []);
 
 const loadDashboardData = async () => {
-  // جرب تجيب من الـ Database
   if (typeof window !== 'undefined' && window.electronAPI) {
     try {
       console.log('Loading dashboard data from database...');
       
-      // جلب الإحصائيات
-      const statsResult = await window.electronAPI.getDashboardStats();
-      console.log('Stats result:', statsResult);
-      
-      if (statsResult.success) {
-        setStats(statsResult.data);
-      }
-      
-      // جلب آخر الأعضاء
+      // جلب جميع الأعضاء
       const membersResult = await window.electronAPI.getMembers();
       console.log('Members result:', membersResult);
       
       if (membersResult.success) {
-        setRecentMembers(membersResult.data.slice(0, 3));
+        const allMembers = membersResult.data;
+        
+        // حساب الإحصائيات من البيانات
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        
+        let activeCount = 0;
+        let expiredCount = 0;
+        let totalRevenue = 0;
+        let pendingPayments = 0;
+        let todayJoins = 0;
+        
+        allMembers.forEach(member => {
+          const endDate = member.subscription_end || member.subscriptionEnd;
+          const isExpired = new Date(endDate) < today;
+          
+          if (isExpired) {
+            expiredCount++;
+          } else {
+            activeCount++;
+          }
+          
+          // حساب الإيرادات
+          const paidAmount = parseFloat(member.paid_amount || member.paidAmount || 0);
+          const remainingAmount = parseFloat(member.remaining_amount || member.remainingAmount || 0);
+          
+          totalRevenue += paidAmount;
+          pendingPayments += remainingAmount;
+          
+          // حساب المنضمين اليوم
+          const createdAt = (member.created_at || member.createdAt || '').split('T')[0];
+          if (createdAt === todayStr) {
+            todayJoins++;
+          }
+        });
+        
+        setStats({
+          totalMembers: allMembers.length,
+          activeMembers: activeCount,
+          expiredMembers: expiredCount,
+          totalRevenue: totalRevenue,
+          pendingPayments: pendingPayments,
+          todayJoins: todayJoins
+        });
+        
+        // جلب آخر 3 أعضاء
+        setRecentMembers(allMembers.slice(0, 3));
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -189,17 +226,17 @@ const loadDashboardData = async () => {
               </thead>
               <tbody>
                 {recentMembers.map((member) => {
-                  const isExpired = new Date(member.subscriptionEnd) < new Date();
-                  const hasPending = member.remainingAmount > 0;
+const isExpired = new Date(member.subscription_end || member.subscriptionEnd) < new Date();
+const hasPending = (member.remaining_amount || member.remainingAmount) > 0;
                   
                   return (
                     <tr key={member.id} className="border-b border-gray-700 hover:bg-gray-750 transition">
-                      <td className="py-3 px-4 text-white">{member.name}</td>
-                      <td className="py-3 px-4 text-gray-300">{member.phone}</td>
-                      <td className="py-3 px-4 text-gray-300">{member.subscriptionEnd}</td>
-                      <td className="py-3 px-4">
-                        <span className={`font-bold ${hasPending ? 'text-red-400' : 'text-green-400'}`}>
-                          {member.remainingAmount} ج.م
+<td className="py-3 px-4 text-white">{member.name}</td>
+<td className="py-3 px-4 text-gray-300">{member.phone}</td>
+<td className="py-3 px-4 text-gray-300">{member.subscription_end || member.subscriptionEnd}</td>
+<td className="py-3 px-4">
+  <span className={`font-bold ${hasPending ? 'text-red-400' : 'text-green-400'}`}>
+    {member.remaining_amount || member.remainingAmount} ج.م
                         </span>
                       </td>
                       <td className="py-3 px-4">
@@ -227,9 +264,11 @@ const loadDashboardData = async () => {
             >
               عرض جميع الأعضاء ←
             </button>
+            
           </div>
         </div>
       </div>
     </div>
+    
   );
 }

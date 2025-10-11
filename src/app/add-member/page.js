@@ -29,6 +29,7 @@ export default function MemberRegistrationForm() {
   const todayDate = getTodayDate();
 
   const [formData, setFormData] = useState({
+     memberId: '',
     name: '',
     phone: '',
     photo: null,
@@ -123,6 +124,27 @@ export default function MemberRegistrationForm() {
                   className="hidden"
                 />
               </label>
+            </div>
+
+            {/* رقم ID العضو */}
+            <div className="bg-blue-900/20 border-2 border-blue-500 rounded-xl p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-2xl">
+                  🆔
+                </div>
+                <div className="flex-1">
+                  <label className="block text-blue-300 mb-1 font-bold">رقم ID العضو (للكارت)</label>
+                  <input
+                    type="text"
+                    name="memberId"
+                    value={formData.memberId}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 bg-gray-700 border-2 border-blue-500 rounded-lg text-white text-2xl font-bold text-center focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                    placeholder="0001"
+                  />
+                  <p className="text-xs text-blue-300 mt-1 text-center">هذا الرقم سيُطبع على كارت العضو</p>
+                </div>
+              </div>
             </div>
 
             {/* البيانات الأساسية */}

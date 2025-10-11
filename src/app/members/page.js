@@ -295,14 +295,16 @@ const filterMembers = () => {
             <table className="w-full">
               <thead className="bg-gray-750">
                 <tr>
+
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">الاسم</th>
+                                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">التليفون</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">نوع الاشتراك</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">الحالة</th>
                   <th className="text-right py-4 px-4 text-gray-300 font-semibold">المتبقي</th>
                   <th className="text-center py-4 px-4 text-gray-300 font-semibold">الإجراءات</th>
-                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
+
                 </tr>
               </thead>
               <tbody>
@@ -330,7 +332,11 @@ const filterMembers = () => {
                             <span className="text-white font-medium">{member.name}</span>
                           </div>
                         </td>
+                                                <td className="py-4 px-4 text-gray-300 font-mono font-bold">
+  {member.custom_id || member.id}
+</td>
                         <td className="py-4 px-4 text-gray-300">{member.phone}</td>
+
                         <td className="py-4 px-4 text-gray-300">{subType}</td>
                         <td className="py-4 px-4 text-gray-300 font-mono font-bold">
                             {member.custom_id || member.id}

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useDebounce, LoadingSpinner } from '../hooks/optimizedHooks';
+import { useDebounce, LoadingSpinner } from '../../hooks/optimizedHooks';
 
 export default function VisitorsPage() {
   const [visitors, setVisitors] = useState([]);

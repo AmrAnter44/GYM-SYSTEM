@@ -1,11 +1,10 @@
 "use client";
 import { useState, useCallback, useMemo, Suspense, lazy } from 'react';
-import { useMembers, useDebounce, useFilteredMembers, TableSkeleton, LoadingSpinner } from '../hooks/optimizedHooks';
+import { useMembers, useDebounce, useFilteredMembers, TableSkeleton, LoadingSpinner } from '../../hooks/optimizedHooks';
 
 // Lazy load modals
-const DetailsModal = lazy(() => import('../components/DetailsModal'));
-const EditModal = lazy(() => import('../components/EditModal'));
-const RenewModal = lazy(() => import('../components/RenewModal'));
+
+
 
 export default function MembersManagement() {
   const { members, loading, reload, updateMember, deleteMember } = useMembers();

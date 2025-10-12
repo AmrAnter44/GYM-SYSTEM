@@ -1,7 +1,7 @@
 "use client";
 import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { compressImage } from '../hooks/optimizedHooks';
+import { compressImage } from '../../hooks/optimizedHooks';
 
 export default function MemberRegistrationForm() {
   const router = useRouter();

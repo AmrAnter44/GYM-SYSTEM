@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════
 // main.js - Electron Main Process with better-sqlite3
+// مع دعم PT (Personal Training)
 // ═══════════════════════════════════════════════════════════
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
 const Database = require('better-sqlite3');
@@ -21,7 +22,7 @@ function initializeDatabase() {
   
   // Create database connection
   db = new Database(dbPath, {
-    verbose: console.log // Log SQL queries in development
+    verbose: isDev ? console.log : null // Log SQL queries in development only
   });
 
   // ═══ PERFORMANCE OPTIMIZATIONS ═══
@@ -48,6 +49,7 @@ function initializeDatabase() {
 
   // ═══ CREATE TABLES ═══
   
+  // Members table
   db.exec(`
     CREATE TABLE IF NOT EXISTS members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +69,7 @@ function initializeDatabase() {
     )
   `);
 
+  // Visitors table
   db.exec(`
     CREATE TABLE IF NOT EXISTS visitors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,19 +81,51 @@ function initializeDatabase() {
     )
   `);
 
+  // PT Clients table (NEW!)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pt_clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      custom_id TEXT,
+      client_name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      coach_name TEXT NOT NULL,
+      total_sessions INTEGER DEFAULT 0,
+      completed_sessions INTEGER DEFAULT 0,
+      remaining_sessions INTEGER DEFAULT 0,
+      total_amount REAL DEFAULT 0,
+      paid_amount REAL DEFAULT 0,
+      remaining_amount REAL DEFAULT 0,
+      start_date TEXT,
+      end_date TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+
   console.log('✅ Database tables created');
 
   // ═══ CREATE INDEXES FOR FAST QUERIES ═══
   
   const indexes = [
+    // Members indexes
     'CREATE INDEX IF NOT EXISTS idx_members_name ON members(name)',
     'CREATE INDEX IF NOT EXISTS idx_members_phone ON members(phone)',
     'CREATE INDEX IF NOT EXISTS idx_members_custom_id ON members(custom_id)',
     'CREATE INDEX IF NOT EXISTS idx_members_subscription_end ON members(subscription_end)',
     'CREATE INDEX IF NOT EXISTS idx_members_created_at ON members(created_at)',
+    
+    // Visitors indexes
     'CREATE INDEX IF NOT EXISTS idx_visitors_name ON visitors(name)',
     'CREATE INDEX IF NOT EXISTS idx_visitors_phone ON visitors(phone)',
-    'CREATE INDEX IF NOT EXISTS idx_visitors_created_at ON visitors(createdAt)'
+    'CREATE INDEX IF NOT EXISTS idx_visitors_created_at ON visitors(createdAt)',
+    
+    // PT Clients indexes (NEW!)
+    'CREATE INDEX IF NOT EXISTS idx_pt_client_name ON pt_clients(client_name)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_phone ON pt_clients(phone)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_coach ON pt_clients(coach_name)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_custom_id ON pt_clients(custom_id)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_end_date ON pt_clients(end_date)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_created_at ON pt_clients(created_at)'
   ];
 
   indexes.forEach(sql => db.exec(sql));
@@ -115,13 +150,11 @@ class DatabaseManager {
   }
 
   initializePreparedStatements() {
-    // Get all members (optimized)
+    // ═══ MEMBERS ═══
     this.preparedStatements.getAllMembers = this.db.prepare(`
-      SELECT * FROM members 
-      ORDER BY created_at DESC
+      SELECT * FROM members ORDER BY created_at DESC
     `);
 
-    // Search members by name, phone, or custom_id (optimized with indexes)
     this.preparedStatements.searchMembers = this.db.prepare(`
       SELECT * FROM members 
       WHERE name LIKE ? OR phone LIKE ? OR custom_id = ?
@@ -129,33 +162,28 @@ class DatabaseManager {
       LIMIT ?
     `);
 
-    // Get member by ID
     this.preparedStatements.getMemberById = this.db.prepare(`
       SELECT * FROM members WHERE id = ?
     `);
 
-    // Get members with expiring subscriptions
     this.preparedStatements.getExpiringMembers = this.db.prepare(`
       SELECT * FROM members 
       WHERE subscription_end BETWEEN date('now') AND date('now', '+7 days')
       ORDER BY subscription_end ASC
     `);
 
-    // Get active members count
     this.preparedStatements.getActiveMembersCount = this.db.prepare(`
       SELECT COUNT(*) as count 
       FROM members 
       WHERE subscription_end >= date('now')
     `);
 
-    // Get expired members count
     this.preparedStatements.getExpiredMembersCount = this.db.prepare(`
       SELECT COUNT(*) as count 
       FROM members 
       WHERE subscription_end < date('now')
     `);
 
-    // Insert member
     this.preparedStatements.insertMember = this.db.prepare(`
       INSERT INTO members (
         custom_id, name, phone, photo, 
@@ -164,31 +192,65 @@ class DatabaseManager {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    // Delete member
     this.preparedStatements.deleteMember = this.db.prepare(`
       DELETE FROM members WHERE id = ?
     `);
 
-    // Get all visitors
+    // ═══ VISITORS ═══
     this.preparedStatements.getAllVisitors = this.db.prepare(`
       SELECT * FROM visitors ORDER BY createdAt DESC
     `);
 
-    // Insert visitor
     this.preparedStatements.insertVisitor = this.db.prepare(`
       INSERT INTO visitors (name, phone, notes, recordedBy, createdAt)
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    // Delete visitor
     this.preparedStatements.deleteVisitor = this.db.prepare(`
       DELETE FROM visitors WHERE id = ?
+    `);
+
+    // ═══ PT CLIENTS (NEW!) ═══
+    this.preparedStatements.getAllPTClients = this.db.prepare(`
+      SELECT * FROM pt_clients ORDER BY created_at DESC
+    `);
+
+    this.preparedStatements.getPTClientById = this.db.prepare(`
+      SELECT * FROM pt_clients WHERE id = ?
+    `);
+
+    this.preparedStatements.searchPTClients = this.db.prepare(`
+      SELECT * FROM pt_clients 
+      WHERE client_name LIKE ? OR phone LIKE ? OR coach_name LIKE ? OR custom_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+
+    this.preparedStatements.insertPTClient = this.db.prepare(`
+      INSERT INTO pt_clients (
+        custom_id, client_name, phone, coach_name,
+        total_sessions, completed_sessions, remaining_sessions,
+        total_amount, paid_amount, remaining_amount,
+        start_date, end_date, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    this.preparedStatements.deletePTClient = this.db.prepare(`
+      DELETE FROM pt_clients WHERE id = ?
+    `);
+
+    this.preparedStatements.updatePTSessions = this.db.prepare(`
+      UPDATE pt_clients 
+      SET completed_sessions = ?, remaining_sessions = ?
+      WHERE id = ?
     `);
 
     console.log('✅ Prepared statements initialized');
   }
 
-  // ═══ MEMBERS OPERATIONS ═══
+  // ═══════════════════════════════════════════════════════════
+  // 👥 MEMBERS OPERATIONS
+  // ═══════════════════════════════════════════════════════════
 
   getAllMembers() {
     try {
@@ -247,7 +309,6 @@ class DatabaseManager {
       const fields = [];
       const values = [];
 
-      // Build dynamic UPDATE query
       Object.keys(data).forEach(key => {
         fields.push(`${key} = ?`);
         values.push(data[key]);
@@ -276,7 +337,9 @@ class DatabaseManager {
     }
   }
 
-  // ═══ VISITORS OPERATIONS ═══
+  // ═══════════════════════════════════════════════════════════
+  // 👥 VISITORS OPERATIONS
+  // ═══════════════════════════════════════════════════════════
 
   getAllVisitors() {
     try {
@@ -314,7 +377,159 @@ class DatabaseManager {
     }
   }
 
-  // ═══ STATISTICS ═══
+  // ═══════════════════════════════════════════════════════════
+  // 💪 PT CLIENTS OPERATIONS (NEW!)
+  // ═══════════════════════════════════════════════════════════
+
+  getAllPTClients() {
+    try {
+      return this.preparedStatements.getAllPTClients.all();
+    } catch (error) {
+      console.error('Error getting all PT clients:', error);
+      throw error;
+    }
+  }
+
+  getPTClientById(id) {
+    try {
+      return this.preparedStatements.getPTClientById.get(id);
+    } catch (error) {
+      console.error('Error getting PT client by ID:', error);
+      throw error;
+    }
+  }
+
+  searchPTClients(searchTerm, limit = 100) {
+    try {
+      const search = `%${searchTerm}%`;
+      return this.preparedStatements.searchPTClients.all(
+        search, search, search, searchTerm, limit
+      );
+    } catch (error) {
+      console.error('Error searching PT clients:', error);
+      throw error;
+    }
+  }
+
+  addPTClient(data) {
+    try {
+      const result = this.preparedStatements.insertPTClient.run(
+        data.custom_id || null,
+        data.client_name,
+        data.phone,
+        data.coach_name,
+        data.total_sessions || 0,
+        data.completed_sessions || 0,
+        data.remaining_sessions || 0,
+        data.total_amount || 0,
+        data.paid_amount || 0,
+        data.remaining_amount || 0,
+        data.start_date,
+        data.end_date,
+        data.notes || ''
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding PT client:', error);
+      throw error;
+    }
+  }
+
+  updatePTClient(id, data) {
+    try {
+      const fields = [];
+      const values = [];
+
+      Object.keys(data).forEach(key => {
+        fields.push(`${key} = ?`);
+        values.push(data[key]);
+      });
+
+      values.push(id);
+
+      const sql = `UPDATE pt_clients SET ${fields.join(', ')} WHERE id = ?`;
+      const stmt = this.db.prepare(sql);
+      stmt.run(...values);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating PT client:', error);
+      throw error;
+    }
+  }
+
+  deletePTClient(id) {
+    try {
+      this.preparedStatements.deletePTClient.run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting PT client:', error);
+      throw error;
+    }
+  }
+
+  updatePTSession(id, completedSessions) {
+    try {
+      const client = this.preparedStatements.getPTClientById.get(id);
+      if (!client) {
+        throw new Error('PT Client not found');
+      }
+
+      const remaining = client.total_sessions - completedSessions;
+      this.preparedStatements.updatePTSessions.run(completedSessions, remaining, id);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating PT session:', error);
+      throw error;
+    }
+  }
+
+  // Get PT Statistics
+  getPTStatistics() {
+    try {
+      const total = this.db.prepare('SELECT COUNT(*) as count FROM pt_clients').get().count;
+      
+      const active = this.db.prepare(`
+        SELECT COUNT(*) as count FROM pt_clients 
+        WHERE end_date >= date('now')
+      `).get().count;
+      
+      const totalRevenue = this.db.prepare(`
+        SELECT SUM(paid_amount) as total FROM pt_clients
+      `).get().total || 0;
+      
+      const pending = this.db.prepare(`
+        SELECT SUM(remaining_amount) as total FROM pt_clients
+      `).get().total || 0;
+
+      const totalSessions = this.db.prepare(`
+        SELECT SUM(total_sessions) as total FROM pt_clients
+      `).get().total || 0;
+
+      const completedSessions = this.db.prepare(`
+        SELECT SUM(completed_sessions) as total FROM pt_clients
+      `).get().total || 0;
+
+      return {
+        totalClients: total,
+        activeClients: active,
+        totalRevenue: totalRevenue,
+        pendingPayments: pending,
+        totalSessions: totalSessions,
+        completedSessions: completedSessions,
+        remainingSessions: totalSessions - completedSessions
+      };
+    } catch (error) {
+      console.error('Error getting PT statistics:', error);
+      throw error;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 📊 GENERAL STATISTICS
+  // ═══════════════════════════════════════════════════════════
 
   getStatistics() {
     try {
@@ -338,7 +553,9 @@ class DatabaseManager {
     }
   }
 
-  // ═══ BATCH OPERATIONS ═══
+  // ═══════════════════════════════════════════════════════════
+  // 🔧 BATCH OPERATIONS
+  // ═══════════════════════════════════════════════════════════
 
   batchInsertMembers(members) {
     const insertMany = this.db.transaction((membersArray) => {
@@ -369,19 +586,46 @@ class DatabaseManager {
     }
   }
 
-  // ═══ OPTIMIZATION ═══
+  batchInsertPTClients(clients) {
+    const insertMany = this.db.transaction((clientsArray) => {
+      for (const client of clientsArray) {
+        this.preparedStatements.insertPTClient.run(
+          client.custom_id || null,
+          client.client_name,
+          client.phone,
+          client.coach_name,
+          client.total_sessions || 0,
+          client.completed_sessions || 0,
+          client.remaining_sessions || 0,
+          client.total_amount || 0,
+          client.paid_amount || 0,
+          client.remaining_amount || 0,
+          client.start_date,
+          client.end_date,
+          client.notes || ''
+        );
+      }
+    });
+
+    try {
+      insertMany(clients);
+      return { success: true, count: clients.length };
+    } catch (error) {
+      console.error('Batch insert PT clients error:', error);
+      throw error;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 🔧 OPTIMIZATION & MAINTENANCE
+  // ═══════════════════════════════════════════════════════════
 
   optimizeDatabase() {
     try {
       console.log('🔧 Running database optimization...');
       
-      // Analyze for query optimization
       this.db.exec('ANALYZE');
-      
-      // Incremental vacuum
       this.db.exec('PRAGMA incremental_vacuum');
-      
-      // Optimize
       this.db.exec('PRAGMA optimize');
 
       console.log('✅ Database optimized successfully');
@@ -392,12 +636,10 @@ class DatabaseManager {
     }
   }
 
-  // ═══ BACKUP ═══
-
   backupDatabase(backupPath) {
     try {
       const backup = this.db.backup(backupPath);
-      backup.step(-1); // Copy all pages
+      backup.step(-1);
       backup.finish();
       
       console.log('✅ Database backup created:', backupPath);
@@ -407,8 +649,6 @@ class DatabaseManager {
       throw error;
     }
   }
-
-  // ═══ CLOSE ═══
 
   close() {
     try {
@@ -433,8 +673,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
-    },
-    icon: path.join(__dirname, 'assets/icon.png') // Optional
+    }
   });
 
   const startURL = isDev
@@ -550,6 +789,88 @@ ipcMain.handle('delete-visitor', async (event, id) => {
   }
 });
 
+// ═══ PT CLIENTS (NEW!) ═══
+
+ipcMain.handle('get-pt-clients', async () => {
+  try {
+    const clients = dbManager.getAllPTClients();
+    return { success: true, data: clients };
+  } catch (error) {
+    console.error('IPC Error - get-pt-clients:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-pt-client', async (event, id) => {
+  try {
+    const client = dbManager.getPTClientById(id);
+    return { success: true, data: client };
+  } catch (error) {
+    console.error('IPC Error - get-pt-client:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('search-pt-clients', async (event, searchTerm) => {
+  try {
+    const clients = dbManager.searchPTClients(searchTerm);
+    return { success: true, data: clients };
+  } catch (error) {
+    console.error('IPC Error - search-pt-clients:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-pt-client', async (event, data) => {
+  try {
+    const result = dbManager.addPTClient(data);
+    return result;
+  } catch (error) {
+    console.error('IPC Error - add-pt-client:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-pt-client', async (event, id, data) => {
+  try {
+    const result = dbManager.updatePTClient(id, data);
+    return result;
+  } catch (error) {
+    console.error('IPC Error - update-pt-client:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-pt-client', async (event, id) => {
+  try {
+    const result = dbManager.deletePTClient(id);
+    return result;
+  } catch (error) {
+    console.error('IPC Error - delete-pt-client:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-pt-session', async (event, id, completedSessions) => {
+  try {
+    const result = dbManager.updatePTSession(id, completedSessions);
+    return result;
+  } catch (error) {
+    console.error('IPC Error - update-pt-session:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-pt-statistics', async () => {
+  try {
+    const stats = dbManager.getPTStatistics();
+    return { success: true, data: stats };
+  } catch (error) {
+    console.error('IPC Error - get-pt-statistics:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // ═══ STATISTICS ═══
 
 ipcMain.handle('get-statistics', async () => {
@@ -577,7 +898,15 @@ ipcMain.handle('optimize-database', async () => {
 ipcMain.handle('backup-database', async () => {
   try {
     const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const backupPath = path.join(app.getPath('userData'), `gym_backup_${timestamp}.db`);
+    const backupPath = path.join(app.getPath('documents'), 'Gym Backups', `gym_backup_${timestamp}.db`);
+    
+    // Create backup folder if not exists
+    const backupDir = path.join(app.getPath('documents'), 'Gym Backups');
+    const fs = require('fs');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    
     const result = dbManager.backupDatabase(backupPath);
     return result;
   } catch (error) {
@@ -586,11 +915,32 @@ ipcMain.handle('backup-database', async () => {
   }
 });
 
-// ═══ EXPORT TO EXCEL (Placeholder - requires exceljs) ═══
+// Open data folder
+ipcMain.handle('open-data-folder', async () => {
+  try {
+    const userDataPath = app.getPath('userData');
+    await shell.openPath(userDataPath);
+    return { success: true, path: userDataPath };
+  } catch (error) {
+    console.error('Error opening data folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get database path
+ipcMain.handle('get-database-path', async () => {
+  try {
+    const dbPath = path.join(app.getPath('userData'), 'gym_database.db');
+    return { success: true, path: dbPath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ═══ EXPORT TO EXCEL (Placeholder) ═══
 
 ipcMain.handle('export-members-to-excel', async (event, filters) => {
   try {
-    // TODO: Implement Excel export using exceljs
     return { 
       success: false, 
       message: 'Excel export not implemented yet. Install exceljs to enable this feature.' 
@@ -603,10 +953,9 @@ ipcMain.handle('export-members-to-excel', async (event, filters) => {
 
 ipcMain.handle('export-visitors-to-excel', async (event, filters) => {
   try {
-    // TODO: Implement Excel export using exceljs
     return { 
       success: false, 
-      message: 'Excel export not implemented yet. Install exceljs to enable this feature.' 
+      message: 'Excel export not implemented yet.' 
     };
   } catch (error) {
     console.error('IPC Error - export-visitors-to-excel:', error);
@@ -614,9 +963,20 @@ ipcMain.handle('export-visitors-to-excel', async (event, filters) => {
   }
 });
 
+ipcMain.handle('export-pt-clients-to-excel', async (event, filters) => {
+  try {
+    return { 
+      success: false, 
+      message: 'Excel export not implemented yet.' 
+    };
+  } catch (error) {
+    console.error('IPC Error - export-pt-clients-to-excel:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('export-financial-report', async () => {
   try {
-    // TODO: Implement financial report export
     return { 
       success: false, 
       message: 'Financial report export not implemented yet.' 
@@ -632,7 +992,6 @@ ipcMain.handle('export-financial-report', async () => {
 // ═══════════════════════════════════════════════════════════
 
 function scheduleOptimization() {
-  // Run optimization at 3 AM daily
   const now = new Date();
   const nextRun = new Date(
     now.getFullYear(),
@@ -650,7 +1009,7 @@ function scheduleOptimization() {
     } catch (error) {
       console.error('❌ Scheduled optimization failed:', error);
     }
-    scheduleOptimization(); // Schedule next run
+    scheduleOptimization();
   }, timeout);
 
   console.log(`⏰ Next optimization scheduled for: ${nextRun.toLocaleString()}`);
@@ -663,14 +1022,10 @@ function scheduleOptimization() {
 app.on('ready', () => {
   console.log('🚀 App is ready');
   
-  // Initialize database
   db = initializeDatabase();
   dbManager = new DatabaseManager(db);
   
-  // Create window
   createWindow();
-  
-  // Start scheduled optimization
   scheduleOptimization();
 });
 
@@ -700,7 +1055,6 @@ app.on('before-quit', () => {
   }
 });
 
-// Handle unexpected errors
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
 });
@@ -708,10 +1062,6 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
-// ═══════════════════════════════════════════════════════════
-// 📤 EXPORTS
-// ═══════════════════════════════════════════════════════════
 
 module.exports = {
   db,

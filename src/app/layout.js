@@ -28,6 +28,7 @@ export default function RootLayout({ children }) {
                 <NavLink href="/" icon="🏠" label="الرئيسية" />
                 <NavLink href="/add-member" icon="➕" label="إضافة عضو جديد" />
                 <NavLink href="/members" icon="👥" label="إدارة المشتركين" />
+                <NavLink href="/pt-clients" icon="💪" label="PT - التدريب الشخصي" />
                 <NavLink href="/visitors" icon="👥" label="الزائرين" />
               </ul>
             </nav>

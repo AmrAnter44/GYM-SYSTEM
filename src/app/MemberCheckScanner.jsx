@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 
 export default function MemberCheckScanner() {
   const [showModal, setShowModal] = useState(false);
@@ -7,65 +7,107 @@ export default function MemberCheckScanner() {
   const [isChecking, setIsChecking] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [showResult, setShowResult] = useState(false);
+  const [nextSearchValue, setNextSearchValue] = useState('');
   
-  // Web Worker للبحث السريع
-  const workerRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const nextSearchInputRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const searchIdRef = useRef(0);
+  const cancelledSearchesRef = useRef(new Set());
 
-  // تهيئة Web Worker
+  // تهيئة AudioContext مرة واحدة فقط
   useMemo(() => {
-    if (typeof window !== 'undefined' && !workerRef.current) {
-      try {
-        workerRef.current = new Worker('/workers/searchWorker.js');
-      } catch (error) {
-        console.error('Web Worker not supported:', error);
-      }
+    if (typeof window !== 'undefined' && !audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
   }, []);
 
+  // Focus تلقائي - محسّن
+  useEffect(() => {
+    if (showModal && !showResult) {
+      const timer = setTimeout(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [showModal, showResult]);
+
+  // Focus على next input بعد كل نتيجة
+  useEffect(() => {
+    if (showResult && !isChecking) {
+      const timer = setTimeout(() => {
+        nextSearchInputRef.current?.focus();
+        nextSearchInputRef.current?.select();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showResult, isChecking]);
+
+  // Global keyboard listener - الحل السحري! ⚡
+  useEffect(() => {
+    if (!showResult) return;
+
+    const handleGlobalKeyPress = (e) => {
+      if (document.activeElement !== nextSearchInputRef.current) {
+        const key = e.key;
+        if (key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+          e.preventDefault();
+          nextSearchInputRef.current?.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleGlobalKeyPress);
+    return () => document.removeEventListener('keydown', handleGlobalKeyPress);
+  }, [showResult]);
+
   const playSuccessSound = useCallback(() => {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
     
     const playTone = (freq, delay, duration) => {
       setTimeout(() => {
-        const osc = audioContext.createOscillator();
-        const gain = audioContext.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.connect(gain);
-        gain.connect(audioContext.destination);
+        gain.connect(ctx.destination);
         osc.frequency.value = freq;
         osc.type = 'sine';
-        gain.gain.setValueAtTime(0.6, audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-        osc.start(audioContext.currentTime);
-        osc.stop(audioContext.currentTime + duration);
+        gain.gain.setValueAtTime(0.5, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration);
       }, delay);
     };
 
-    playTone(880, 0, 0.3);
-    playTone(1108.73, 150, 0.4);
-    playTone(1318.51, 300, 0.5);
+    playTone(880, 0, 0.2);
+    playTone(1108.73, 100, 0.25);
+    playTone(1318.51, 200, 0.3);
   }, []);
 
   const playErrorSound = useCallback(() => {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
     
     const playTone = (freq, delay, duration) => {
       setTimeout(() => {
-        const osc = audioContext.createOscillator();
-        const gain = audioContext.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.connect(gain);
-        gain.connect(audioContext.destination);
+        gain.connect(ctx.destination);
         osc.frequency.value = freq;
         osc.type = 'square';
-        gain.gain.setValueAtTime(0.7, audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-        osc.start(audioContext.currentTime);
-        osc.stop(audioContext.currentTime + duration);
+        gain.gain.setValueAtTime(0.6, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration);
       }, delay);
     };
 
-    playTone(400, 0, 0.15);
-    playTone(300, 150, 0.15);
-    playTone(250, 300, 0.3);
+    playTone(400, 0, 0.12);
+    playTone(300, 100, 0.12);
+    playTone(250, 200, 0.25);
   }, []);
 
   const handleOpenModal = useCallback(() => {
@@ -73,6 +115,9 @@ export default function MemberCheckScanner() {
     setSearchValue('');
     setScanResult(null);
     setShowResult(false);
+    setNextSearchValue('');
+    searchIdRef.current = 0;
+    cancelledSearchesRef.current.clear();
   }, []);
 
   const handleCloseModal = useCallback(() => {
@@ -80,9 +125,26 @@ export default function MemberCheckScanner() {
     setSearchValue('');
     setScanResult(null);
     setShowResult(false);
+    setNextSearchValue('');
+    searchIdRef.current = 0;
+    cancelledSearchesRef.current.clear();
   }, []);
 
-  const processMemberResult = useCallback((member) => {
+  const processMemberResult = useCallback((member, searchId) => {
+    // تجاهل النتائج الملغاة
+    if (cancelledSearchesRef.current.has(searchId)) {
+      console.log('Ignoring cancelled search:', searchId);
+      return;
+    }
+
+    // تجاهل النتائج القديمة
+    if (searchId !== searchIdRef.current) {
+      console.log('Ignoring old search result:', searchId, 'current:', searchIdRef.current);
+      return;
+    }
+
+    console.log('Processing result for search:', searchId);
+
     if (!member) {
       playErrorSound();
       setScanResult({
@@ -91,11 +153,13 @@ export default function MemberCheckScanner() {
         details: 'لم يتم العثور على عضو بهذا الاسم أو الرقم'
       });
       setShowResult(true);
+      setIsChecking(false);
       return;
     }
 
     const endDate = new Date(member.subscription_end || member.subscriptionEnd);
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const isExpired = endDate < today;
     const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
 
@@ -130,13 +194,23 @@ export default function MemberCheckScanner() {
     }
     
     setShowResult(true);
-    setSearchValue('');
+    setIsChecking(false);
   }, [playSuccessSound, playErrorSound]);
 
-  const checkMember = useCallback(async () => {
-    if (!searchValue.trim()) return;
+  const performSearch = useCallback(async (searchTerm) => {
+    // إلغاء البحث السابق
+    if (searchIdRef.current > 0) {
+      cancelledSearchesRef.current.add(searchIdRef.current);
+    }
 
-    setIsChecking(true);
+    // زيادة search ID لكل بحث جديد
+    searchIdRef.current += 1;
+    const currentSearchId = searchIdRef.current;
+
+    console.log('Starting search:', currentSearchId, 'term:', searchTerm);
+
+    // مسح النتيجة القديمة فورًا
+    setScanResult(null);
 
     if (!window.electronAPI) {
       playErrorSound();
@@ -153,37 +227,40 @@ export default function MemberCheckScanner() {
     try {
       const result = await window.electronAPI.getMembers();
       
-      if (result.success) {
-        const searchTerm = searchValue.trim().toLowerCase();
+      // تأكد إن ده لسه آخر search
+      if (currentSearchId !== searchIdRef.current) {
+        console.log('Search superseded:', currentSearchId, 'by:', searchIdRef.current);
+        return;
+      }
+      
+      if (result.success && result.data) {
+        const searchTermLower = searchTerm.toLowerCase();
         
-        // استخدام Web Worker للبحث السريع
-        if (workerRef.current) {
-          workerRef.current.postMessage({
-            members: result.data,
-            searchTerm: searchTerm
-          });
-
-          workerRef.current.onmessage = (e) => {
-            const { success, result: member } = e.data;
-            if (success) {
-              processMemberResult(member);
-            }
-            setIsChecking(false);
-          };
-        } else {
-          // Fallback: البحث العادي بدون Worker
-          const member = result.data.find(m => {
-            const matchId = String(m.id) === searchTerm || String(m.custom_id) === searchTerm;
-            const matchName = m.name.toLowerCase().includes(searchTerm);
-            return matchId || matchName;
-          });
+        // بحث سريع ومباشر
+        const member = result.data.find(m => {
+          if (!m) return false;
+          const id = String(m.id || '');
+          const customId = String(m.custom_id || '');
+          const name = (m.name || '').toLowerCase();
           
-          processMemberResult(member);
-          setIsChecking(false);
-        }
+          return id === searchTermLower || 
+                 customId === searchTermLower || 
+                 name.includes(searchTermLower);
+        });
+        
+        console.log('Search completed:', currentSearchId, 'found:', !!member);
+        processMemberResult(member || null, currentSearchId);
+      } else {
+        processMemberResult(null, currentSearchId);
       }
     } catch (error) {
-      console.error('Error checking member:', error);
+      // تأكد إن ده لسه آخر search
+      if (currentSearchId !== searchIdRef.current) {
+        console.log('Search error ignored for old search:', currentSearchId);
+        return;
+      }
+      
+      console.error('Search error:', error);
       playErrorSound();
       setScanResult({
         success: false,
@@ -193,13 +270,50 @@ export default function MemberCheckScanner() {
       setShowResult(true);
       setIsChecking(false);
     }
-  }, [searchValue, playErrorSound, processMemberResult]);
+  }, [playErrorSound, processMemberResult]);
+
+  const checkMember = useCallback(() => {
+    const term = searchValue.trim();
+    if (!term || isChecking) return;
+    
+    setIsChecking(true);
+    setSearchValue('');
+    performSearch(term);
+  }, [searchValue, isChecking, performSearch]);
+
+  const handleNextScan = useCallback(() => {
+    const term = nextSearchValue.trim();
+    if (!term || isChecking) return;
+
+    setIsChecking(true);
+    setNextSearchValue('');
+    performSearch(term);
+  }, [nextSearchValue, isChecking, performSearch]);
 
   const handleKeyPress = useCallback((e) => {
-    if (e.key === 'Enter' && searchValue.trim()) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
       checkMember();
     }
-  }, [searchValue, checkMember]);
+  }, [checkMember]);
+
+  const handleNextKeyPress = useCallback((e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleNextScan();
+    }
+  }, [handleNextScan]);
+
+  const handleQuickNext = useCallback(() => {
+    if (nextSearchValue.trim()) {
+      handleNextScan();
+    } else {
+      setShowResult(false);
+      setScanResult(null);
+      setSearchValue('');
+      setNextSearchValue('');
+    }
+  }, [nextSearchValue, handleNextScan]);
 
   return (
     <>
@@ -207,7 +321,7 @@ export default function MemberCheckScanner() {
       <div className="fixed bottom-8 left-8 z-50">
         <button
           onClick={handleOpenModal}
-          className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-3xl transition-all transform hover:scale-110 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+          className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-3xl transition-all duration-200 transform hover:scale-110 active:scale-95 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
           title="تشيك على عضو"
           aria-label="فتح ماسح العضوية"
         >
@@ -217,8 +331,11 @@ export default function MemberCheckScanner() {
 
       {/* Search Modal */}
       {showModal && !showResult && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700 max-w-md w-full">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 animate-fadeIn"
+          onClick={(e) => e.target === e.currentTarget && handleCloseModal()}
+        >
+          <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700 max-w-md w-full animate-slideUp">
             <div className="text-center mb-6">
               <div className="text-6xl mb-4">🔍</div>
               <h2 className="text-3xl font-bold text-white mb-2">تشيك على عضو</h2>
@@ -227,29 +344,32 @@ export default function MemberCheckScanner() {
 
             <div className="mb-6">
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchValue}
                 onChange={(e) => setSearchValue(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyPress}
                 placeholder="اسم العضو أو ID..."
-                autoFocus
-                className="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl text-white text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none text-center"
+                disabled={isChecking}
+                autoComplete="off"
+                className="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl text-white text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none text-center transition-all disabled:opacity-50"
               />
             </div>
 
             <div className="flex gap-3">
               <button
                 onClick={handleCloseModal}
-                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-xl font-bold transition text-lg"
+                disabled={isChecking}
+                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-white rounded-xl font-bold transition-all text-lg disabled:opacity-50"
               >
                 إلغاء
               </button>
               <button
                 onClick={checkMember}
                 disabled={!searchValue.trim() || isChecking}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-xl font-bold transition text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 active:scale-95 text-white rounded-xl font-bold transition-all text-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isChecking ? '⏳ جاري البحث...' : '✓ تشيك'}
+                {isChecking ? '⏳ جاري...' : '✓ تشيك'}
               </button>
             </div>
           </div>
@@ -258,9 +378,12 @@ export default function MemberCheckScanner() {
 
       {/* Result Modal */}
       {showResult && scanResult && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 animate-fadeIn"
+          onClick={(e) => e.target === e.currentTarget && handleCloseModal()}
+        >
           <div 
-            className={`rounded-2xl p-8 shadow-2xl max-w-md w-full transform transition-all ${
+            className={`rounded-2xl p-6 shadow-2xl max-w-md w-full animate-slideUp ${
               scanResult.success 
                 ? scanResult.warning 
                   ? 'bg-gradient-to-br from-yellow-600 to-orange-600' 
@@ -269,7 +392,7 @@ export default function MemberCheckScanner() {
             }`}
           >
             <div className="text-center text-white">
-              <div className="text-7xl mb-4">
+              <div className="text-7xl mb-3 animate-bounce">
                 {scanResult.success ? (scanResult.warning ? '⏰' : '✅') : '❌'}
               </div>
               
@@ -277,60 +400,116 @@ export default function MemberCheckScanner() {
                 <>
                   <h2 className="text-3xl font-bold mb-2">{scanResult.name}</h2>
                   {scanResult.id && (
-                    <p className="text-lg opacity-75 mb-4">ID: {scanResult.id}</p>
+                    <p className="text-lg opacity-75 mb-3">ID: {scanResult.id}</p>
                   )}
                 </>
               )}
               
-              <p className="text-4xl font-bold mb-4">{scanResult.message}</p>
+              <p className="text-3xl font-bold mb-3">{scanResult.message}</p>
               
               {scanResult.details && (
-                <p className="text-xl mb-4 opacity-90">{scanResult.details}</p>
+                <p className="text-xl mb-3 opacity-90">{scanResult.details}</p>
               )}
 
               {scanResult.phone && (
-                <div className="bg-white bg-opacity-20 rounded-lg p-4 mb-4">
+                <div className="bg-white bg-opacity-20 rounded-lg p-3 mb-3">
                   <p className="text-sm opacity-75 mb-1">التليفون</p>
-                  <p className="text-xl font-bold">{scanResult.phone}</p>
+                  <p className="text-lg font-bold">{scanResult.phone}</p>
                 </div>
               )}
 
               {scanResult.endDate && (
-                <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="grid grid-cols-2 gap-2 mb-3">
                   {scanResult.subscriptionType && (
-                    <div className="bg-white bg-opacity-20 rounded-lg p-3">
+                    <div className="bg-white bg-opacity-20 rounded-lg p-2">
                       <p className="text-xs opacity-75 mb-1">نوع الاشتراك</p>
                       <p className="text-sm font-bold">{scanResult.subscriptionType}</p>
                     </div>
                   )}
-                  <div className="bg-white bg-opacity-20 rounded-lg p-3">
+                  <div className="bg-white bg-opacity-20 rounded-lg p-2">
                     <p className="text-xs opacity-75 mb-1">ينتهي في</p>
                     <p className="text-sm font-bold">{scanResult.endDate}</p>
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-3">
+              {/* Quick Next Scan */}
+              <div className="mb-3">
+                <div className="bg-white bg-opacity-25 rounded-xl p-3 border-2 border-white border-opacity-40">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <span className="text-2xl">⚡</span>
+                    <p className="text-sm font-bold">ابدأ الكتابة مباشرة!</p>
+                  </div>
+                  <input
+                    ref={nextSearchInputRef}
+                    type="text"
+                    value={nextSearchValue}
+                    onChange={(e) => setNextSearchValue(e.target.value)}
+                    onKeyDown={handleNextKeyPress}
+                    placeholder="اكتب هنا فورًا..."
+                    disabled={isChecking}
+                    autoComplete="off"
+                    className="w-full px-4 py-3 bg-white text-gray-900 rounded-lg text-center font-bold text-lg focus:ring-4 focus:ring-white focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-500"
+                  />
+                  <p className="text-xs opacity-75 mt-2">💡 اضغط أي مفتاح للكتابة مباشرة</p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
                 <button
                   onClick={handleCloseModal}
-                  className="flex-1 px-8 py-3 bg-white text-gray-800 rounded-lg font-bold hover:bg-gray-100 transition text-lg"
+                  disabled={isChecking}
+                  className="flex-1 px-4 py-3 bg-white text-gray-800 rounded-lg font-bold hover:bg-gray-100 active:scale-95 transition-all text-base disabled:opacity-50"
                 >
                   إغلاق
                 </button>
                 <button
-                  onClick={() => {
-                    setShowResult(false);
-                    setSearchValue('');
-                  }}
-                  className="flex-1 px-8 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg font-bold transition text-lg"
+                  onClick={handleQuickNext}
+                  disabled={isChecking}
+                  className="flex-1 px-4 py-3 bg-white bg-opacity-25 hover:bg-opacity-35 active:scale-95 text-white rounded-lg font-bold transition-all text-base disabled:opacity-50 border-2 border-white border-opacity-40"
                 >
-                  🔍 تشيك آخر
+                  {isChecking ? '⏳' : nextSearchValue.trim() ? '✓ تشيك' : '🔄 جديد'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+          from { 
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to { 
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .animate-fadeIn {
+          animation: fadeIn 0.15s ease-out;
+        }
+        
+        .animate-slideUp {
+          animation: slideUp 0.2s ease-out;
+        }
+        
+        @keyframes bounce {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+        
+        .animate-bounce {
+          animation: bounce 0.5s ease-in-out;
+        }
+      `}</style>
     </>
   );
 }

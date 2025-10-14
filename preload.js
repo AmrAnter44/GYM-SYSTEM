@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 // preload.js - Secure Bridge between Renderer and Main
-// مع دعم PT (Personal Training) و InBody و Day Use
+// مع دعم PT + InBody + Day Use + Auto ID
 // ═══════════════════════════════════════════════════════════
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addMember: (memberData) => ipcRenderer.invoke('add-member', memberData),
   updateMember: (id, data) => ipcRenderer.invoke('update-member', id, data),
   deleteMember: (id) => ipcRenderer.invoke('delete-member', id),
+
+  // ═══════════════════════════════════════════════════════════
+  // 🆔 AUTO ID (NEW!)
+  // ═══════════════════════════════════════════════════════════
+  getHighestCustomId: () => ipcRenderer.invoke('get-highest-custom-id'),
+  getHighestPTCustomId: () => ipcRenderer.invoke('get-highest-pt-custom-id'),
 
   // ═══════════════════════════════════════════════════════════
   // 👥 VISITORS
@@ -78,11 +84,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 console.log('✅ Preload script loaded successfully');
 console.log('📡 Available APIs:');
-console.log('   - Members (إدارة المشتركين)');
-console.log('   - Visitors (الزائرين)');
-console.log('   - PT Clients (التدريب الشخصي)');
-console.log('   - InBody Services (خدمات InBody)');
-console.log('   - Day Use Services (خدمات Day Use)');
-console.log('   - Statistics (الإحصائيات)');
-console.log('   - Database Operations (إدارة قاعدة البيانات)');
-console.log('   - Export Functions (التصدير)');
+console.log('   - Members (إدارة المشتركين) ✅');
+console.log('   - Auto ID (رقم تلقائي) ✅ NEW!');
+console.log('   - Visitors (الزائرين) ✅');
+console.log('   - PT Clients (التدريب الشخصي) ✅');
+console.log('   - InBody Services (خدمات InBody) ✅');
+console.log('   - Day Use Services (خدمات Day Use) ✅');
+console.log('   - Statistics (الإحصائيات) ✅');
+console.log('   - Database Operations (إدارة قاعدة البيانات) ✅');
+console.log('   - Export Functions (التصدير) ✅');

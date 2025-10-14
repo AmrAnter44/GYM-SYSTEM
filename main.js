@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 // main.js - Electron Main Process with better-sqlite3
-// مع دعم PT + InBody + Day Use
+// مع دعم PT + InBody + Day Use + Auto ID
 // ═══════════════════════════════════════════════════════════
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
@@ -118,6 +118,7 @@ function initializeDatabase() {
     'CREATE INDEX IF NOT EXISTS idx_members_custom_id ON members(custom_id)',
     'CREATE INDEX IF NOT EXISTS idx_visitors_name ON visitors(name)',
     'CREATE INDEX IF NOT EXISTS idx_pt_client_name ON pt_clients(client_name)',
+    'CREATE INDEX IF NOT EXISTS idx_pt_custom_id ON pt_clients(custom_id)',
     'CREATE INDEX IF NOT EXISTS idx_inbody_client_name ON inbody_services(client_name)',
     'CREATE INDEX IF NOT EXISTS idx_dayuse_client_name ON dayuse_services(client_name)'
   ];
@@ -151,6 +152,15 @@ class DatabaseManager {
     `);
     this.preparedStatements.deleteMember = this.db.prepare(`DELETE FROM members WHERE id = ?`);
 
+    // ═══ AUTO ID للأعضاء (NEW!) ═══
+    this.preparedStatements.getHighestCustomId = this.db.prepare(`
+      SELECT custom_id FROM members 
+      WHERE custom_id IS NOT NULL 
+      AND custom_id != ''
+      ORDER BY CAST(custom_id AS INTEGER) DESC 
+      LIMIT 1
+    `);
+
     // Visitors
     this.preparedStatements.getAllVisitors = this.db.prepare(`SELECT * FROM visitors ORDER BY createdAt DESC`);
     this.preparedStatements.insertVisitor = this.db.prepare(`
@@ -167,6 +177,15 @@ class DatabaseManager {
     `);
     this.preparedStatements.deletePTClient = this.db.prepare(`DELETE FROM pt_clients WHERE id = ?`);
 
+    // ═══ AUTO ID للـ PT (NEW!) ═══
+    this.preparedStatements.getHighestPTCustomId = this.db.prepare(`
+      SELECT custom_id FROM pt_clients 
+      WHERE custom_id IS NOT NULL 
+      AND custom_id != ''
+      ORDER BY CAST(custom_id AS INTEGER) DESC 
+      LIMIT 1
+    `);
+
     // InBody Services
     this.preparedStatements.getAllInBodyServices = this.db.prepare(`SELECT * FROM inbody_services ORDER BY created_at DESC`);
     this.preparedStatements.insertInBodyService = this.db.prepare(`
@@ -180,9 +199,14 @@ class DatabaseManager {
       INSERT INTO dayuse_services (client_name, phone, service_price, staff_name, notes) VALUES (?, ?, ?, ?, ?)
     `);
     this.preparedStatements.deleteDayUseService = this.db.prepare(`DELETE FROM dayuse_services WHERE id = ?`);
+
+    console.log('✅ Prepared statements initialized');
   }
 
-  // Members
+  // ═══════════════════════════════════════════════════════════
+  // 👥 MEMBERS
+  // ═══════════════════════════════════════════════════════════
+
   getAllMembers() {
     return this.preparedStatements.getAllMembers.all();
   }
@@ -215,7 +239,24 @@ class DatabaseManager {
     return { success: true };
   }
 
-  // Visitors
+  // ═══ GET HIGHEST CUSTOM ID للأعضاء (NEW!) ═══
+  getHighestCustomId() {
+    try {
+      const result = this.preparedStatements.getHighestCustomId.get();
+      return { 
+        success: true, 
+        highestId: result?.custom_id || null 
+      };
+    } catch (error) {
+      console.error('Error getting highest custom ID:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 👥 VISITORS
+  // ═══════════════════════════════════════════════════════════
+
   getAllVisitors() {
     return this.preparedStatements.getAllVisitors.all();
   }
@@ -233,7 +274,10 @@ class DatabaseManager {
     return { success: true };
   }
 
-  // PT Clients
+  // ═══════════════════════════════════════════════════════════
+  // 💪 PT CLIENTS
+  // ═══════════════════════════════════════════════════════════
+
   getAllPTClients() {
     return this.preparedStatements.getAllPTClients.all();
   }
@@ -266,7 +310,24 @@ class DatabaseManager {
     return { success: true };
   }
 
-  // InBody Services
+  // ═══ GET HIGHEST PT CUSTOM ID (NEW!) ═══
+  getHighestPTCustomId() {
+    try {
+      const result = this.preparedStatements.getHighestPTCustomId.get();
+      return { 
+        success: true, 
+        highestId: result?.custom_id || null 
+      };
+    } catch (error) {
+      console.error('Error getting highest PT custom ID:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // 📊 INBODY SERVICES
+  // ═══════════════════════════════════════════════════════════
+
   getAllInBodyServices() {
     return this.preparedStatements.getAllInBodyServices.all();
   }
@@ -284,7 +345,10 @@ class DatabaseManager {
     return { success: true };
   }
 
-  // Day Use Services
+  // ═══════════════════════════════════════════════════════════
+  // 🏃 DAY USE SERVICES
+  // ═══════════════════════════════════════════════════════════
+
   getAllDayUseServices() {
     return this.preparedStatements.getAllDayUseServices.all();
   }
@@ -302,14 +366,49 @@ class DatabaseManager {
     return { success: true };
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // 📊 STATISTICS
+  // ═══════════════════════════════════════════════════════════
+
   getStatistics() {
     const total = this.db.prepare('SELECT COUNT(*) as count FROM members').get().count;
     const revenue = this.db.prepare('SELECT SUM(paid_amount) as total FROM members').get().total || 0;
     return { totalMembers: total, totalRevenue: revenue };
   }
 
+  getOtherServicesStatistics() {
+    try {
+      // InBody Statistics
+      const inbodyCount = this.db.prepare('SELECT COUNT(*) as count FROM inbody_services').get().count;
+      const inbodyRevenue = this.db.prepare('SELECT SUM(service_price) as total FROM inbody_services').get().total || 0;
+
+      // Day Use Statistics
+      const dayuseCount = this.db.prepare('SELECT COUNT(*) as count FROM dayuse_services').get().count;
+      const dayuseRevenue = this.db.prepare('SELECT SUM(service_price) as total FROM dayuse_services').get().total || 0;
+
+      return {
+        inbody: {
+          totalServices: inbodyCount,
+          totalRevenue: inbodyRevenue
+        },
+        dayuse: {
+          totalServices: dayuseCount,
+          totalRevenue: dayuseRevenue
+        },
+        combined: {
+          totalServices: inbodyCount + dayuseCount,
+          totalRevenue: inbodyRevenue + dayuseRevenue
+        }
+      };
+    } catch (error) {
+      console.error('Error getting other services statistics:', error);
+      throw error;
+    }
+  }
+
   close() {
     this.db.close();
+    console.log('✅ Database closed successfully');
   }
 }
 
@@ -338,7 +437,8 @@ function createWindow() {
 // 📡 IPC HANDLERS
 // ═══════════════════════════════════════════════════════════
 
-// Members
+// ═══ MEMBERS ═══
+
 ipcMain.handle('get-members', async () => {
   try {
     return { success: true, data: dbManager.getAllMembers() };
@@ -371,7 +471,18 @@ ipcMain.handle('delete-member', async (event, id) => {
   }
 });
 
-// Visitors
+// ═══ AUTO ID للأعضاء (NEW!) ═══
+
+ipcMain.handle('get-highest-custom-id', async () => {
+  try {
+    return dbManager.getHighestCustomId();
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ═══ VISITORS ═══
+
 ipcMain.handle('get-visitors', async () => {
   try {
     return { success: true, data: dbManager.getAllVisitors() };
@@ -396,7 +507,8 @@ ipcMain.handle('delete-visitor', async (event, id) => {
   }
 });
 
-// PT Clients
+// ═══ PT CLIENTS ═══
+
 ipcMain.handle('get-pt-clients', async () => {
   try {
     return { success: true, data: dbManager.getAllPTClients() };
@@ -429,7 +541,18 @@ ipcMain.handle('delete-pt-client', async (event, id) => {
   }
 });
 
-// InBody Services
+// ═══ AUTO ID للـ PT (NEW!) ═══
+
+ipcMain.handle('get-highest-pt-custom-id', async () => {
+  try {
+    return dbManager.getHighestPTCustomId();
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ═══ INBODY SERVICES ═══
+
 ipcMain.handle('get-inbody-services', async () => {
   try {
     return { success: true, data: dbManager.getAllInBodyServices() };
@@ -454,7 +577,8 @@ ipcMain.handle('delete-inbody-service', async (event, id) => {
   }
 });
 
-// Day Use Services
+// ═══ DAY USE SERVICES ═══
+
 ipcMain.handle('get-dayuse-services', async () => {
   try {
     return { success: true, data: dbManager.getAllDayUseServices() };
@@ -479,10 +603,20 @@ ipcMain.handle('delete-dayuse-service', async (event, id) => {
   }
 });
 
-// Statistics
+// ═══ STATISTICS ═══
+
 ipcMain.handle('get-statistics', async () => {
   try {
     return { success: true, data: dbManager.getStatistics() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-other-services-statistics', async () => {
+  try {
+    const stats = dbManager.getOtherServicesStatistics();
+    return { success: true, data: stats };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -493,6 +627,7 @@ ipcMain.handle('get-statistics', async () => {
 // ═══════════════════════════════════════════════════════════
 
 app.on('ready', () => {
+  console.log('🚀 App is ready');
   db = initializeDatabase();
   dbManager = new DatabaseManager(db);
   createWindow();
@@ -507,4 +642,15 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+app.on('before-quit', () => {
+  console.log('👋 App is quitting...');
+  if (dbManager) {
+    try {
+      dbManager.close();
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
+  }
 });

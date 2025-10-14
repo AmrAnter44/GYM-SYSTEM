@@ -1,35 +1,323 @@
 "use client";
-import { useState, useCallback, useMemo, Suspense, lazy } from 'react';
-import { useMembers, useDebounce, useFilteredMembers, TableSkeleton, LoadingSpinner } from '../../hooks/optimizedHooks';
+import { useState, useCallback, useMemo } from 'react';
 
-// Lazy load modals
+// Details Modal Component
+function DetailsModal({ member, onClose, onEdit }) {
+  const endDate = member.subscription_end || member.subscriptionEnd;
+  const isExpired = new Date(endDate) < new Date();
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-xl p-8 max-w-2xl w-full border border-gray-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-3xl font-bold text-white">📋 تفاصيل العضو</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+        </div>
 
+        <div className="space-y-4">
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm mb-1">الاسم</p>
+            <p className="text-white text-xl font-bold">{member.name}</p>
+          </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">ID</p>
+              <p className="text-blue-400 text-lg font-mono font-bold">{member.custom_id || member.id}</p>
+            </div>
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">التليفون</p>
+              <p className="text-white text-lg font-bold">{member.phone}</p>
+            </div>
+          </div>
+
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm mb-1">نوع الاشتراك</p>
+            <p className="text-white text-lg font-bold">{member.subscription_type || member.subscriptionType}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">بداية الاشتراك</p>
+              <p className="text-white text-lg">{member.subscription_start || member.subscriptionStart}</p>
+            </div>
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">نهاية الاشتراك</p>
+              <p className="text-white text-lg">{endDate}</p>
+            </div>
+          </div>
+
+          <div className="bg-gray-700 rounded-lg p-4">
+            <p className="text-gray-400 text-sm mb-1">الحالة</p>
+            {isExpired ? (
+              <span className="bg-red-900/50 text-red-400 px-4 py-2 rounded-full text-lg font-bold inline-block">
+                منتهي ⚠️
+              </span>
+            ) : (
+              <span className="bg-green-900/50 text-green-400 px-4 py-2 rounded-full text-lg font-bold inline-block">
+                نشط ✅
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">السعر</p>
+              <p className="text-white text-lg font-bold">{member.price || 0} ج.م</p>
+            </div>
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">المتبقي</p>
+              <p className={`text-lg font-bold ${(member.remaining_amount || member.remainingAmount || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                {member.remaining_amount || member.remainingAmount || 0} ج.م
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onEdit}
+            className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 rounded-lg transition"
+          >
+            ✏️ تعديل
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition"
+          >
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Edit Modal Component
+function EditModal({ member, onClose, onSave }) {
+  const [formData, setFormData] = useState({
+    name: member.name || '',
+    phone: member.phone || '',
+    subscriptionType: member.subscription_type || member.subscriptionType || '',
+    subscriptionStart: member.subscription_start || member.subscriptionStart || '',
+    subscriptionEnd: member.subscription_end || member.subscriptionEnd || '',
+    price: member.price || 0,
+    remainingAmount: member.remaining_amount || member.remainingAmount || 0
+  });
+
+  const handleSubmit = () => {
+    if (!formData.name || !formData.phone || !formData.subscriptionType) {
+      alert('⚠️ برجاء ملء جميع الحقول المطلوبة');
+      return;
+    }
+
+    onSave({
+      name: formData.name,
+      phone: formData.phone,
+      subscription_type: formData.subscriptionType,
+      subscription_start: formData.subscriptionStart,
+      subscription_end: formData.subscriptionEnd,
+      price: parseFloat(formData.price) || 0,
+      remaining_amount: parseFloat(formData.remainingAmount) || 0
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-xl p-8 max-w-2xl w-full border border-gray-700 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-3xl font-bold text-white">✏️ تعديل بيانات العضو</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-gray-300 block mb-2">الاسم</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-gray-300 block mb-2">التليفون</label>
+            <input
+              type="text"
+              value={formData.phone}
+              onChange={(e) => setFormData({...formData, phone: e.target.value})}
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-gray-300 block mb-2">نوع الاشتراك</label>
+            <select
+              value={formData.subscriptionType}
+              onChange={(e) => setFormData({...formData, subscriptionType: e.target.value})}
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            >
+              <option value="">اختر نوع الاشتراك</option>
+              <option value="شهري">شهري</option>
+              <option value="3شهور">3 شهور</option>
+              <option value="6شهور">6 شهور</option>
+              <option value="سنوي">سنوي</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-gray-300 block mb-2">بداية الاشتراك</label>
+              <input
+                type="date"
+                value={formData.subscriptionStart}
+                onChange={(e) => setFormData({...formData, subscriptionStart: e.target.value})}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-gray-300 block mb-2">نهاية الاشتراك</label>
+              <input
+                type="date"
+                value={formData.subscriptionEnd}
+                onChange={(e) => setFormData({...formData, subscriptionEnd: e.target.value})}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-gray-300 block mb-2">السعر</label>
+              <input
+                type="number"
+                value={formData.price}
+                onChange={(e) => setFormData({...formData, price: e.target.value})}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-gray-300 block mb-2">المبلغ المتبقي</label>
+              <input
+                type="number"
+                value={formData.remainingAmount}
+                onChange={(e) => setFormData({...formData, remainingAmount: e.target.value})}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={handleSubmit}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition"
+            >
+              💾 حفظ التعديلات
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition"
+            >
+              إلغاء
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Renew Modal Component
+function RenewModal({ member, onClose, onRenew }) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-xl p-8 max-w-md w-full border border-gray-700">
+        <div className="text-center mb-6">
+          <div className="text-6xl mb-4">🔄</div>
+          <h2 className="text-3xl font-bold text-white mb-2">تجديد الاشتراك</h2>
+          <p className="text-gray-400">هل تريد تجديد اشتراك {member.name}؟</p>
+        </div>
+
+        <div className="bg-gray-700 rounded-lg p-4 mb-6">
+          <p className="text-gray-400 text-sm mb-2">نوع الاشتراك</p>
+          <p className="text-white text-xl font-bold">{member.subscription_type || member.subscriptionType}</p>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onRenew}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition"
+          >
+            ✅ تأكيد التجديد
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition"
+          >
+            إلغاء
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Mock data - replace with real data
+const mockMembers = [
+  {
+    id: 1,
+    custom_id: 'GYM001',
+    name: 'أحمد محمد',
+    phone: '01012345678',
+    subscription_type: 'شهري',
+    subscription_start: '2025-01-01',
+    subscription_end: '2025-02-01',
+    price: 300,
+    remaining_amount: 0
+  },
+  {
+    id: 2,
+    custom_id: 'GYM002',
+    name: 'محمود علي',
+    phone: '01098765432',
+    subscription_type: '3شهور',
+    subscription_start: '2024-12-01',
+    subscription_end: '2025-03-01',
+    price: 800,
+    remaining_amount: 200
+  }
+];
 
 export default function MembersManagement() {
-  const { members, loading, reload, updateMember, deleteMember } = useMembers();
+  const [members, setMembers] = useState(mockMembers);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedMember, setSelectedMember] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Debounced search
-  const debouncedSearch = useDebounce(searchTerm, 300);
+  const filteredMembers = useMemo(() => {
+    return members.filter(member => {
+      const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           member.phone.includes(searchTerm);
+      
+      if (filterStatus === 'all') return matchesSearch;
+      
+      const isExpired = new Date(member.subscription_end) < new Date();
+      if (filterStatus === 'expired') return matchesSearch && isExpired;
+      if (filterStatus === 'active') return matchesSearch && !isExpired;
+      
+      return matchesSearch;
+    });
+  }, [members, searchTerm, filterStatus]);
 
-  // Filtered and memoized members
-  const filteredMembers = useFilteredMembers(members, debouncedSearch, filterStatus);
-
-  // Memoized stats
   const stats = useMemo(() => {
     const total = members.length;
-    const active = members.filter(m => {
-      const endDate = m.subscription_end || m.subscriptionEnd;
-      return endDate && new Date(endDate) >= new Date();
-    }).length;
+    const active = members.filter(m => new Date(m.subscription_end) >= new Date()).length;
     const expired = total - active;
-
     return { total, active, expired };
   }, [members]);
 
@@ -43,66 +331,33 @@ export default function MembersManagement() {
     setShowEditModal(true);
   }, []);
 
-  const handleDelete = useCallback(async (memberId) => {
+  const handleDelete = useCallback((memberId) => {
     if (confirm('هل أنت متأكد من حذف هذا العضو؟')) {
-      try {
-        const result = await deleteMember(memberId);
-        if (result.success) {
-          alert('✅ تم حذف العضو بنجاح');
-        } else {
-          alert('❌ خطأ: ' + result.error);
-        }
-      } catch (error) {
-        alert('❌ خطأ في الحذف: ' + error.message);
-      }
+      setMembers(prev => prev.filter(m => m.id !== memberId));
+      alert('✅ تم حذف العضو بنجاح');
     }
-  }, [deleteMember]);
+  }, []);
 
   const handleRenewSubscription = useCallback((member) => {
     setSelectedMember(member);
     setShowRenewModal(true);
   }, []);
 
-  const handleExportToExcel = useCallback(async () => {
-    try {
-      const filters = {
-        status: filterStatus,
-        searchTerm: searchTerm
-      };
-
-      const result = await window.electronAPI.exportMembersToExcel(filters);
-      
-      if (result.success) {
-        alert(`✅ تم تصدير ${result.count} عضو بنجاح!\n\nالملف: ${result.filePath}`);
-      } else {
-        alert('❌ فشل التصدير: ' + (result.message || result.error));
-      }
-    } catch (error) {
-      alert('❌ خطأ في التصدير: ' + error.message);
-    }
-  }, [filterStatus, searchTerm]);
-
   const isExpired = useCallback((member) => {
-    const endDate = member.subscription_end || member.subscriptionEnd;
-    return new Date(endDate) < new Date();
+    return new Date(member.subscription_end) < new Date();
   }, []);
 
   const getDaysRemaining = useCallback((member) => {
     const today = new Date();
-    const endDate = member.subscription_end || member.subscriptionEnd;
-    const end = new Date(endDate);
+    const end = new Date(member.subscription_end);
     const diffTime = end - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   }, []);
 
-  // Memoized table rows
   const MemberRow = useCallback(({ member }) => {
     const expired = isExpired(member);
     const daysLeft = getDaysRemaining(member);
-    const subType = member.subscription_type || member.subscriptionType;
-    const subEnd = member.subscription_end || member.subscriptionEnd;
-    const remaining = member.remaining_amount || member.remainingAmount || 0;
     
     return (
       <tr className="border-t border-gray-700 hover:bg-gray-750 transition">
@@ -118,10 +373,10 @@ export default function MembersManagement() {
           {member.custom_id || member.id}
         </td>
         <td className="py-4 px-4 text-gray-300">{member.phone}</td>
-        <td className="py-4 px-4 text-gray-300">{subType}</td>
+        <td className="py-4 px-4 text-gray-300">{member.subscription_type}</td>
         <td className="py-4 px-4">
           <div>
-            <p className="text-white">{subEnd}</p>
+            <p className="text-white">{member.subscription_end}</p>
             {!expired && (
               <p className="text-xs text-gray-400">
                 {daysLeft > 0 ? `باقي ${daysLeft} يوم` : 'ينتهي اليوم'}
@@ -145,8 +400,8 @@ export default function MembersManagement() {
           )}
         </td>
         <td className="py-4 px-4">
-          <span className={`font-bold ${remaining > 0 ? 'text-red-400' : 'text-green-400'}`}>
-            {remaining} ج.م
+          <span className={`font-bold ${member.remaining_amount > 0 ? 'text-red-400' : 'text-green-400'}`}>
+            {member.remaining_amount} ج.م
           </span>
         </td>
         <td className="py-4 px-4">
@@ -193,16 +448,13 @@ export default function MembersManagement() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">📋 إدارة المشتركين</h1>
           <p className="text-gray-400">عرض وتعديل وحذف بيانات الأعضاء</p>
         </div>
 
-        {/* Filters and Search */}
         <div className="bg-gray-800 rounded-xl p-6 shadow-lg mb-6 border border-gray-700">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {/* Search */}
             <div className="md:col-span-2">
               <input
                 type="text"
@@ -213,7 +465,6 @@ export default function MembersManagement() {
               />
             </div>
 
-            {/* Status Filter */}
             <div>
               <select
                 value={filterStatus}
@@ -227,26 +478,6 @@ export default function MembersManagement() {
             </div>
           </div>
 
-          {/* Export Buttons */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-            <button
-              onClick={handleExportToExcel}
-              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
-            >
-              <span className="text-xl">📊</span>
-              <span>تصدير إلى Excel</span>
-            </button>
-
-            <button
-              onClick={() => window.location.href = '/add-member'}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
-            >
-              <span className="text-xl">➕</span>
-              <span>إضافة عضو جديد</span>
-            </button>
-          </div>
-
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-700">
             <div className="text-center">
               <p className="text-gray-400 text-sm">إجمالي</p>
@@ -263,105 +494,93 @@ export default function MembersManagement() {
           </div>
         </div>
 
-        {/* Members Table */}
         <div className="bg-gray-800 rounded-xl shadow-lg border border-gray-700 overflow-hidden">
           <div className="overflow-x-auto">
-            {loading ? (
-              <TableSkeleton rows={10} />
-            ) : (
-              <table className="w-full">
-                <thead className="bg-gray-750">
+            <table className="w-full">
+              <thead className="bg-gray-750">
+                <tr>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">الاسم</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">التليفون</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">نوع الاشتراك</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">الحالة</th>
+                  <th className="text-right py-4 px-4 text-gray-300 font-semibold">المتبقي</th>
+                  <th className="text-center py-4 px-4 text-gray-300 font-semibold">الإجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMembers.length === 0 ? (
                   <tr>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">الاسم</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">ID</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">التليفون</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">نوع الاشتراك</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">نهاية الاشتراك</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">الحالة</th>
-                    <th className="text-right py-4 px-4 text-gray-300 font-semibold">المتبقي</th>
-                    <th className="text-center py-4 px-4 text-gray-300 font-semibold">الإجراءات</th>
+                    <td colSpan="8" className="text-center py-8 text-gray-400">
+                      لا يوجد أعضاء
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredMembers.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" className="text-center py-8 text-gray-400">
-                        لا يوجد أعضاء
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredMembers.map((member) => (
-                      <MemberRow key={member.id} member={member} />
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
+                ) : (
+                  filteredMembers.map((member) => (
+                    <MemberRow key={member.id} member={member} />
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* Modals with Lazy Loading */}
-        <Suspense fallback={<LoadingSpinner />}>
-          {showDetailsModal && selectedMember && (
-            <DetailsModal
-              member={selectedMember}
-              onClose={() => setShowDetailsModal(false)}
-              onEdit={() => {
-                setShowDetailsModal(false);
-                handleEdit(selectedMember);
-              }}
-            />
-          )}
+        {showDetailsModal && selectedMember && (
+          <DetailsModal
+            member={selectedMember}
+            onClose={() => setShowDetailsModal(false)}
+            onEdit={() => {
+              setShowDetailsModal(false);
+              handleEdit(selectedMember);
+            }}
+          />
+        )}
 
-          {showEditModal && selectedMember && (
-            <EditModal
-              member={selectedMember}
-              onClose={() => setShowEditModal(false)}
-              onSave={async (data) => {
-                const result = await updateMember(selectedMember.id, data);
-                if (result.success) {
-                  alert('✅ تم تحديث البيانات بنجاح');
-                  setShowEditModal(false);
-                } else {
-                  alert('❌ خطأ: ' + result.error);
-                }
-              }}
-            />
-          )}
+        {showEditModal && selectedMember && (
+          <EditModal
+            member={selectedMember}
+            onClose={() => setShowEditModal(false)}
+            onSave={(data) => {
+              setMembers(prev => prev.map(m => 
+                m.id === selectedMember.id ? { ...m, ...data } : m
+              ));
+              alert('✅ تم تحديث البيانات بنجاح');
+              setShowEditModal(false);
+            }}
+          />
+        )}
 
-          {showRenewModal && selectedMember && (
-            <RenewModal
-              member={selectedMember}
-              onClose={() => setShowRenewModal(false)}
-              onRenew={async () => {
-                const today = new Date().toISOString().split('T')[0];
-                const subType = selectedMember.subscription_type || selectedMember.subscriptionType;
-                let months = 1;
-                
-                switch(subType) {
-                  case '3شهور': months = 3; break;
-                  case '6شهور': months = 6; break;
-                  case 'سنوي': months = 12; break;
-                  default: months = 1;
-                }
+        {showRenewModal && selectedMember && (
+          <RenewModal
+            member={selectedMember}
+            onClose={() => setShowRenewModal(false)}
+            onRenew={() => {
+              const today = new Date().toISOString().split('T')[0];
+              let months = 1;
+              
+              switch(selectedMember.subscription_type) {
+                case '3شهور': months = 3; break;
+                case '6شهور': months = 6; break;
+                case 'سنوي': months = 12; break;
+                default: months = 1;
+              }
 
-                const endDate = new Date();
-                endDate.setMonth(endDate.getMonth() + months);
-                const newEndDate = endDate.toISOString().split('T')[0];
+              const endDate = new Date();
+              endDate.setMonth(endDate.getMonth() + months);
+              const newEndDate = endDate.toISOString().split('T')[0];
 
-                const result = await updateMember(selectedMember.id, {
-                  subscriptionStart: today,
-                  subscriptionEnd: newEndDate
-                });
+              setMembers(prev => prev.map(m => 
+                m.id === selectedMember.id 
+                  ? { ...m, subscription_start: today, subscription_end: newEndDate }
+                  : m
+              ));
 
-                if (result.success) {
-                  alert(`✅ تم تجديد الاشتراك حتى ${newEndDate}`);
-                  setShowRenewModal(false);
-                }
-              }}
-            />
-          )}
-        </Suspense>
+              alert(`✅ تم تجديد الاشتراك حتى ${newEndDate}`);
+              setShowRenewModal(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );

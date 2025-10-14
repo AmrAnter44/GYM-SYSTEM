@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { compressImage } from '../../hooks/optimizedHooks';
 
@@ -50,6 +50,54 @@ export default function MemberRegistrationForm() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompressingImage, setIsCompressingImage] = useState(false);
+  const [isLoadingNextId, setIsLoadingNextId] = useState(false);
+
+  // Auto-load next ID on component mount
+  useEffect(() => {
+    const loadNextId = async () => {
+      setIsLoadingNextId(true);
+      try {
+        if (typeof window !== 'undefined' && window.electronAPI) {
+          const result = await window.electronAPI.getHighestCustomId();
+          
+          if (result.success && result.highestId) {
+            // Extract number from ID and increment
+            const currentNumber = parseInt(result.highestId) || 0;
+            const nextNumber = currentNumber + 1;
+            const nextId = String(nextNumber).padStart(4, '0'); // Format as 0001, 0002, etc.
+            
+            setFormData(prev => ({
+              ...prev,
+              custom_id: nextId
+            }));
+          } else {
+            // If no members exist, start with 0001
+            setFormData(prev => ({
+              ...prev,
+              custom_id: '0001'
+            }));
+          }
+        } else {
+          // Development mode - suggest 0001
+          setFormData(prev => ({
+            ...prev,
+            custom_id: '0001'
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading next ID:', error);
+        // On error, suggest 0001
+        setFormData(prev => ({
+          ...prev,
+          custom_id: '0001'
+        }));
+      } finally {
+        setIsLoadingNextId(false);
+      }
+    };
+
+    loadNextId();
+  }, []);
 
   // Event Handlers
   const handleChange = useCallback((e) => {
@@ -253,18 +301,36 @@ export default function MemberRegistrationForm() {
                 <div className="flex-1">
                   <label className="block text-blue-300 mb-1 font-bold">
                     رقم ID العضو (للكارت)
+                    {isLoadingNextId && (
+                      <span className="text-xs text-yellow-300 mr-2">
+                        ⏳ جاري تحميل الرقم التالي...
+                      </span>
+                    )}
                   </label>
-                  <input
-                    type="text"
-                    name="custom_id"
-                    value={formData.custom_id}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 bg-gray-700 border-2 border-blue-500 rounded-lg text-white text-2xl font-bold text-center focus:ring-2 focus:ring-blue-400 focus:outline-none"
-                    placeholder="0001"
-                    maxLength="10"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="custom_id"
+                      value={formData.custom_id}
+                      onChange={handleChange}
+                      disabled={isLoadingNextId}
+                      className={`w-full px-4 py-3 bg-gray-700 border-2 border-blue-500 rounded-lg text-white text-2xl font-bold text-center focus:ring-2 focus:ring-blue-400 focus:outline-none ${
+                        isLoadingNextId ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                      placeholder="0001"
+                      maxLength="10"
+                    />
+                    {isLoadingNextId && (
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2">
+                        <div className="w-6 h-6 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
                   <p className="text-xs text-blue-300 mt-1 text-center">
-                    هذا الرقم سيُطبع على كارت العضو (اختياري)
+                    {isLoadingNextId 
+                      ? 'يتم البحث عن آخر رقم موجود...'
+                      : 'هذا الرقم سيُطبع على كارت العضو (يمكنك تعديله)'
+                    }
                   </p>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export default function MemberCheckScanner() {
   const [showModal, setShowModal] = useState(false);
@@ -15,100 +15,102 @@ export default function MemberCheckScanner() {
   const searchIdRef = useRef(0);
   const cancelledSearchesRef = useRef(new Set());
 
-  // تهيئة AudioContext مرة واحدة فقط
-  useMemo(() => {
-    if (typeof window !== 'undefined' && !audioContextRef.current) {
+  // Lazy AudioContext initialization
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current && typeof window !== 'undefined') {
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     }
+    return audioContextRef.current;
   }, []);
 
-  // Focus تلقائي - محسّن
+  // Focus واحد مدمج - بدون setTimeout
   useEffect(() => {
-    if (showModal && !showResult) {
-      const timer = setTimeout(() => {
+    if (showModal && !showResult && searchInputRef.current) {
+      requestAnimationFrame(() => {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [showModal, showResult]);
-
-  // Focus على next input بعد كل نتيجة
-  useEffect(() => {
-    if (showResult && !isChecking) {
-      const timer = setTimeout(() => {
+      });
+    } else if (showResult && !isChecking && nextSearchInputRef.current) {
+      requestAnimationFrame(() => {
         nextSearchInputRef.current?.focus();
         nextSearchInputRef.current?.select();
-      }, 100);
-      return () => clearTimeout(timer);
+      });
     }
-  }, [showResult, isChecking]);
+  }, [showModal, showResult, isChecking]);
 
-  // Global keyboard listener - الحل السحري! ⚡
+  // Global keyboard - مبسط
   useEffect(() => {
     if (!showResult) return;
 
-    const handleGlobalKeyPress = (e) => {
-      if (document.activeElement !== nextSearchInputRef.current) {
-        const key = e.key;
-        if (key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-          e.preventDefault();
-          nextSearchInputRef.current?.focus();
-        }
+    const handleKeyDown = (e) => {
+      const target = e.target;
+      const isInput = target === nextSearchInputRef.current;
+      
+      if (!isInput && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        nextSearchInputRef.current?.focus();
       }
     };
 
-    document.addEventListener('keydown', handleGlobalKeyPress);
-    return () => document.removeEventListener('keydown', handleGlobalKeyPress);
+    document.addEventListener('keydown', handleKeyDown, { passive: false });
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [showResult]);
 
   const playSuccessSound = useCallback(() => {
-    if (!audioContextRef.current) return;
-    const ctx = audioContextRef.current;
+    const ctx = getAudioContext();
+    if (!ctx) return;
     
     const playTone = (freq, delay, duration) => {
       setTimeout(() => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.5, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + duration);
+        try {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = 'sine';
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + duration);
+        } catch (e) {
+          // Silent fail
+        }
       }, delay);
     };
 
     playTone(880, 0, 0.2);
     playTone(1108.73, 100, 0.25);
     playTone(1318.51, 200, 0.3);
-  }, []);
+  }, [getAudioContext]);
 
   const playErrorSound = useCallback(() => {
-    if (!audioContextRef.current) return;
-    const ctx = audioContextRef.current;
+    const ctx = getAudioContext();
+    if (!ctx) return;
     
     const playTone = (freq, delay, duration) => {
       setTimeout(() => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = 'square';
-        gain.gain.setValueAtTime(0.6, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + duration);
+        try {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = 'square';
+          gain.gain.setValueAtTime(0.6, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+          osc.start(ctx.currentTime);
+          osc.stop(ctx.currentTime + duration);
+        } catch (e) {
+          // Silent fail
+        }
       }, delay);
     };
 
     playTone(400, 0, 0.12);
     playTone(300, 100, 0.12);
     playTone(250, 200, 0.25);
-  }, []);
+  }, [getAudioContext]);
 
   const handleOpenModal = useCallback(() => {
     setShowModal(true);
@@ -131,19 +133,10 @@ export default function MemberCheckScanner() {
   }, []);
 
   const processMemberResult = useCallback((member, searchId) => {
-    // تجاهل النتائج الملغاة
-    if (cancelledSearchesRef.current.has(searchId)) {
-      console.log('Ignoring cancelled search:', searchId);
+    // تجاهل النتائج الملغاة والقديمة
+    if (cancelledSearchesRef.current.has(searchId) || searchId !== searchIdRef.current) {
       return;
     }
-
-    // تجاهل النتائج القديمة
-    if (searchId !== searchIdRef.current) {
-      console.log('Ignoring old search result:', searchId, 'current:', searchIdRef.current);
-      return;
-    }
-
-    console.log('Processing result for search:', searchId);
 
     if (!member) {
       playErrorSound();
@@ -203,13 +196,11 @@ export default function MemberCheckScanner() {
       cancelledSearchesRef.current.add(searchIdRef.current);
     }
 
-    // زيادة search ID لكل بحث جديد
+    // زيادة search ID
     searchIdRef.current += 1;
     const currentSearchId = searchIdRef.current;
 
-    console.log('Starting search:', currentSearchId, 'term:', searchTerm);
-
-    // مسح النتيجة القديمة فورًا
+    // مسح النتيجة القديمة
     setScanResult(null);
 
     if (!window.electronAPI) {
@@ -228,39 +219,26 @@ export default function MemberCheckScanner() {
       const result = await window.electronAPI.getMembers();
       
       // تأكد إن ده لسه آخر search
-      if (currentSearchId !== searchIdRef.current) {
-        console.log('Search superseded:', currentSearchId, 'by:', searchIdRef.current);
-        return;
-      }
+      if (currentSearchId !== searchIdRef.current) return;
       
       if (result.success && result.data) {
-        const searchTermLower = searchTerm.toLowerCase();
+        const searchLower = searchTerm.toLowerCase();
         
-        // بحث سريع ومباشر
+        // بحث محسّن
         const member = result.data.find(m => {
           if (!m) return false;
-          const id = String(m.id || '');
-          const customId = String(m.custom_id || '');
-          const name = (m.name || '').toLowerCase();
-          
-          return id === searchTermLower || 
-                 customId === searchTermLower || 
-                 name.includes(searchTermLower);
+          return String(m.id || '') === searchLower || 
+                 String(m.custom_id || '') === searchLower || 
+                 (m.name || '').toLowerCase().includes(searchLower);
         });
         
-        console.log('Search completed:', currentSearchId, 'found:', !!member);
         processMemberResult(member || null, currentSearchId);
       } else {
         processMemberResult(null, currentSearchId);
       }
     } catch (error) {
-      // تأكد إن ده لسه آخر search
-      if (currentSearchId !== searchIdRef.current) {
-        console.log('Search error ignored for old search:', currentSearchId);
-        return;
-      }
+      if (currentSearchId !== searchIdRef.current) return;
       
-      console.error('Search error:', error);
       playErrorSound();
       setScanResult({
         success: false,
@@ -351,6 +329,7 @@ export default function MemberCheckScanner() {
                 onKeyDown={handleKeyPress}
                 placeholder="اسم العضو أو ID..."
                 disabled={isChecking}
+                autoFocus
                 autoComplete="off"
                 className="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl text-white text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none text-center transition-all disabled:opacity-50"
               />
@@ -448,6 +427,7 @@ export default function MemberCheckScanner() {
                     onKeyDown={handleNextKeyPress}
                     placeholder="اكتب هنا فورًا..."
                     disabled={isChecking}
+                    autoFocus
                     autoComplete="off"
                     className="w-full px-4 py-3 bg-white text-gray-900 rounded-lg text-center font-bold text-lg focus:ring-4 focus:ring-white focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-500"
                   />

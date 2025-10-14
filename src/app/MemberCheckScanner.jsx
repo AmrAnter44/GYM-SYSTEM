@@ -135,6 +135,8 @@ export default function MemberCheckScanner() {
     setScanResult(null);
     setShowResult(false);
     setNextSearchValue('');
+    setIsChecking(false);
+    // ابدأ من 0 عشان أول search يشتغل
     searchIdRef.current = 0;
     cancelledSearchesRef.current.clear();
   }, []);
@@ -145,15 +147,18 @@ export default function MemberCheckScanner() {
     setScanResult(null);
     setShowResult(false);
     setNextSearchValue('');
+    setIsChecking(false);
     searchIdRef.current = 0;
     cancelledSearchesRef.current.clear();
   }, []);
 
   const processMemberResult = useCallback((member, searchId) => {
+    // تأكد إن ده آخر search
     if (cancelledSearchesRef.current.has(searchId) || searchId !== searchIdRef.current) {
       return;
     }
 
+    // لو مفيش عضو
     if (!member) {
       playErrorSound();
       setScanResult({
@@ -207,14 +212,18 @@ export default function MemberCheckScanner() {
   }, [playSuccessSound, playErrorSound]);
 
   const performSearch = useCallback(async (searchTerm) => {
+    // ألغي أي search قديم
     if (searchIdRef.current > 0) {
       cancelledSearchesRef.current.add(searchIdRef.current);
     }
 
+    // زود الـ ID قبل ما تبدأ
     searchIdRef.current += 1;
     const currentSearchId = searchIdRef.current;
 
+    // امسح النتيجة القديمة
     setScanResult(null);
+    setShowResult(false);
 
     if (!window.electronAPI) {
       playErrorSound();

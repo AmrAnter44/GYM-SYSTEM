@@ -30,6 +30,7 @@ export default function RootLayout({ children }) {
                 <NavLink href="/members" icon="👥" label="إدارة المشتركين" />
                 <NavLink href="/pt-clients" icon="💪" label="PT - التدريب الشخصي" />
                 <NavLink href="/visitors" icon="👥" label="الزائرين" />
+                <NavLink href="/other-services" icon="📊" label="خدمات أخرى" />
               </ul>
             </nav>
 

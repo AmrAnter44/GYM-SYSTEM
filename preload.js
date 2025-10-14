@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════
 // preload.js - Secure Bridge between Renderer and Main
-// مع دعم PT (Personal Training) و Data Folder
+// مع دعم PT (Personal Training) و InBody و Day Use
 // ═══════════════════════════════════════════════════════════
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -38,9 +38,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPTStatistics: () => ipcRenderer.invoke('get-pt-statistics'),
 
   // ═══════════════════════════════════════════════════════════
+  // 📊 INBODY SERVICES
+  // ═══════════════════════════════════════════════════════════
+  getInBodyServices: () => ipcRenderer.invoke('get-inbody-services'),
+  addInBodyService: (data) => ipcRenderer.invoke('add-inbody-service', data),
+  deleteInBodyService: (id) => ipcRenderer.invoke('delete-inbody-service', id),
+  searchInBodyServices: (searchTerm) => ipcRenderer.invoke('search-inbody-services', searchTerm),
+
+  // ═══════════════════════════════════════════════════════════
+  // 🏃 DAY USE SERVICES
+  // ═══════════════════════════════════════════════════════════
+  getDayUseServices: () => ipcRenderer.invoke('get-dayuse-services'),
+  addDayUseService: (data) => ipcRenderer.invoke('add-dayuse-service', data),
+  deleteDayUseService: (id) => ipcRenderer.invoke('delete-dayuse-service', id),
+  searchDayUseServices: (searchTerm) => ipcRenderer.invoke('search-dayuse-services', searchTerm),
+  
+  // ═══════════════════════════════════════════════════════════
   // 📊 STATISTICS
   // ═══════════════════════════════════════════════════════════
   getStatistics: () => ipcRenderer.invoke('get-statistics'),
+  getOtherServicesStatistics: () => ipcRenderer.invoke('get-other-services-statistics'),
 
   // ═══════════════════════════════════════════════════════════
   // 🗄️ DATABASE OPERATIONS
@@ -60,4 +77,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 console.log('✅ Preload script loaded successfully');
-console.log('📡 Available APIs: Members, Visitors, PT Clients, Statistics, Database, Exports');
+console.log('📡 Available APIs:');
+console.log('   - Members (إدارة المشتركين)');
+console.log('   - Visitors (الزائرين)');
+console.log('   - PT Clients (التدريب الشخصي)');
+console.log('   - InBody Services (خدمات InBody)');
+console.log('   - Day Use Services (خدمات Day Use)');
+console.log('   - Statistics (الإحصائيات)');
+console.log('   - Database Operations (إدارة قاعدة البيانات)');
+console.log('   - Export Functions (التصدير)');

@@ -1,5 +1,6 @@
 "use client";
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useMembers, LoadingSpinner } from '../../hooks/optimizedHooks';
 
 // Details Modal Component
 function DetailsModal({ member, onClose, onEdit }) {
@@ -62,8 +63,8 @@ function DetailsModal({ member, onClose, onEdit }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-700 rounded-lg p-4">
-              <p className="text-gray-400 text-sm mb-1">السعر</p>
-              <p className="text-white text-lg font-bold">{member.price || 0} ج.م</p>
+              <p className="text-gray-400 text-sm mb-1">الإجمالي</p>
+              <p className="text-white text-lg font-bold">{member.total_amount || 0} ج.م</p>
             </div>
             <div className="bg-gray-700 rounded-lg p-4">
               <p className="text-gray-400 text-sm mb-1">المتبقي</p>
@@ -72,6 +73,13 @@ function DetailsModal({ member, onClose, onEdit }) {
               </p>
             </div>
           </div>
+
+          {member.notes && (
+            <div className="bg-gray-700 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">ملاحظات</p>
+              <p className="text-white">{member.notes}</p>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 mt-6">
@@ -98,28 +106,38 @@ function EditModal({ member, onClose, onSave }) {
   const [formData, setFormData] = useState({
     name: member.name || '',
     phone: member.phone || '',
-    subscriptionType: member.subscription_type || member.subscriptionType || '',
-    subscriptionStart: member.subscription_start || member.subscriptionStart || '',
-    subscriptionEnd: member.subscription_end || member.subscriptionEnd || '',
-    price: member.price || 0,
-    remainingAmount: member.remaining_amount || member.remainingAmount || 0
+    subscription_type: member.subscription_type || member.subscriptionType || '',
+    subscription_start: member.subscription_start || member.subscriptionStart || '',
+    subscription_end: member.subscription_end || member.subscriptionEnd || '',
+    total_amount: member.total_amount || 0,
+    paid_amount: member.paid_amount || 0,
+    remaining_amount: member.remaining_amount || member.remainingAmount || 0,
+    notes: member.notes || ''
   });
 
+  const handleChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setFormData(prev => {
+      const updated = { ...prev, [name]: value };
+      
+      // Auto calculate remaining
+      if (name === 'total_amount' || name === 'paid_amount') {
+        const total = name === 'total_amount' ? parseFloat(value) || 0 : prev.total_amount;
+        const paid = name === 'paid_amount' ? parseFloat(value) || 0 : prev.paid_amount;
+        updated.remaining_amount = total - paid;
+      }
+      
+      return updated;
+    });
+  }, []);
+
   const handleSubmit = () => {
-    if (!formData.name || !formData.phone || !formData.subscriptionType) {
+    if (!formData.name || !formData.phone || !formData.subscription_type) {
       alert('⚠️ برجاء ملء جميع الحقول المطلوبة');
       return;
     }
 
-    onSave({
-      name: formData.name,
-      phone: formData.phone,
-      subscription_type: formData.subscriptionType,
-      subscription_start: formData.subscriptionStart,
-      subscription_end: formData.subscriptionEnd,
-      price: parseFloat(formData.price) || 0,
-      remaining_amount: parseFloat(formData.remainingAmount) || 0
-    });
+    onSave(formData);
   };
 
   return (
@@ -135,8 +153,9 @@ function EditModal({ member, onClose, onSave }) {
             <label className="text-gray-300 block mb-2">الاسم</label>
             <input
               type="text"
+              name="name"
               value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              onChange={handleChange}
               className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>
@@ -145,8 +164,9 @@ function EditModal({ member, onClose, onSave }) {
             <label className="text-gray-300 block mb-2">التليفون</label>
             <input
               type="text"
+              name="phone"
               value={formData.phone}
-              onChange={(e) => setFormData({...formData, phone: e.target.value})}
+              onChange={handleChange}
               className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>
@@ -154,8 +174,9 @@ function EditModal({ member, onClose, onSave }) {
           <div>
             <label className="text-gray-300 block mb-2">نوع الاشتراك</label>
             <select
-              value={formData.subscriptionType}
-              onChange={(e) => setFormData({...formData, subscriptionType: e.target.value})}
+              name="subscription_type"
+              value={formData.subscription_type}
+              onChange={handleChange}
               className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
               <option value="">اختر نوع الاشتراك</option>
@@ -171,8 +192,9 @@ function EditModal({ member, onClose, onSave }) {
               <label className="text-gray-300 block mb-2">بداية الاشتراك</label>
               <input
                 type="date"
-                value={formData.subscriptionStart}
-                onChange={(e) => setFormData({...formData, subscriptionStart: e.target.value})}
+                name="subscription_start"
+                value={formData.subscription_start}
+                onChange={handleChange}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
@@ -180,32 +202,58 @@ function EditModal({ member, onClose, onSave }) {
               <label className="text-gray-300 block mb-2">نهاية الاشتراك</label>
               <input
                 type="date"
-                value={formData.subscriptionEnd}
-                onChange={(e) => setFormData({...formData, subscriptionEnd: e.target.value})}
+                name="subscription_end"
+                value={formData.subscription_end}
+                onChange={handleChange}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="text-gray-300 block mb-2">السعر</label>
+              <label className="text-gray-300 block mb-2">الإجمالي</label>
               <input
                 type="number"
-                value={formData.price}
-                onChange={(e) => setFormData({...formData, price: e.target.value})}
+                name="total_amount"
+                value={formData.total_amount}
+                onChange={handleChange}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
             <div>
-              <label className="text-gray-300 block mb-2">المبلغ المتبقي</label>
+              <label className="text-gray-300 block mb-2">المدفوع</label>
               <input
                 type="number"
-                value={formData.remainingAmount}
-                onChange={(e) => setFormData({...formData, remainingAmount: e.target.value})}
+                name="paid_amount"
+                value={formData.paid_amount}
+                onChange={handleChange}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
+            <div>
+              <label className="text-gray-300 block mb-2">المتبقي</label>
+              <input
+                type="number"
+                name="remaining_amount"
+                value={formData.remaining_amount}
+                readOnly
+                className={`w-full px-4 py-3 border border-gray-600 rounded-lg cursor-not-allowed ${
+                  formData.remaining_amount > 0 ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'
+                }`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-gray-300 block mb-2">ملاحظات</label>
+            <textarea
+              name="notes"
+              value={formData.notes}
+              onChange={handleChange}
+              rows="3"
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none"
+            />
           </div>
 
           <div className="flex gap-3 pt-4">
@@ -263,46 +311,22 @@ function RenewModal({ member, onClose, onRenew }) {
   );
 }
 
-// Mock data - replace with real data
-const mockMembers = [
-  {
-    id: 1,
-    custom_id: 'GYM001',
-    name: 'أحمد محمد',
-    phone: '01012345678',
-    subscription_type: 'شهري',
-    subscription_start: '2025-01-01',
-    subscription_end: '2025-02-01',
-    price: 300,
-    remaining_amount: 0
-  },
-  {
-    id: 2,
-    custom_id: 'GYM002',
-    name: 'محمود علي',
-    phone: '01098765432',
-    subscription_type: '3شهور',
-    subscription_start: '2024-12-01',
-    subscription_end: '2025-03-01',
-    price: 800,
-    remaining_amount: 200
-  }
-];
-
 export default function MembersManagement() {
-  const [members, setMembers] = useState(mockMembers);
+  // ✅ استخدام الـ Hook بدل الـ Mock Data
+  const { members, loading, updateMember, deleteMember, reload } = useMembers();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [selectedMember, setSelectedMember] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const filteredMembers = useMemo(() => {
     return members.filter(member => {
       const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           member.phone.includes(searchTerm);
+                           member.phone.includes(searchTerm) ||
+                           String(member.custom_id || '').includes(searchTerm);
       
       if (filterStatus === 'all') return matchesSearch;
       
@@ -331,17 +355,75 @@ export default function MembersManagement() {
     setShowEditModal(true);
   }, []);
 
-  const handleDelete = useCallback((memberId) => {
+  const handleDelete = useCallback(async (memberId) => {
     if (confirm('هل أنت متأكد من حذف هذا العضو؟')) {
-      setMembers(prev => prev.filter(m => m.id !== memberId));
-      alert('✅ تم حذف العضو بنجاح');
+      try {
+        const result = await deleteMember(memberId);
+        if (result.success) {
+          alert('✅ تم حذف العضو بنجاح');
+        } else {
+          alert('❌ خطأ: ' + result.error);
+        }
+      } catch (error) {
+        alert('❌ خطأ: ' + error.message);
+      }
     }
-  }, []);
+  }, [deleteMember]);
+
+  const handleSaveEdit = useCallback(async (formData) => {
+    try {
+      const result = await updateMember(selectedMember.id, formData);
+      if (result.success) {
+        alert('✅ تم تحديث البيانات بنجاح');
+        setShowEditModal(false);
+        setSelectedMember(null);
+      } else {
+        alert('❌ خطأ: ' + result.error);
+      }
+    } catch (error) {
+      alert('❌ خطأ: ' + error.message);
+    }
+  }, [selectedMember, updateMember]);
 
   const handleRenewSubscription = useCallback((member) => {
     setSelectedMember(member);
     setShowRenewModal(true);
   }, []);
+
+  const handleConfirmRenew = useCallback(async () => {
+    if (!selectedMember) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    let months = 1;
+    
+    switch(selectedMember.subscription_type) {
+      case '3شهور': months = 3; break;
+      case '6شهور': months = 6; break;
+      case 'سنوي': months = 12; break;
+      default: months = 1;
+    }
+
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + months);
+    const newEndDate = endDate.toISOString().split('T')[0];
+
+    try {
+      const result = await updateMember(selectedMember.id, {
+        subscription_start: today,
+        subscription_end: newEndDate
+      });
+
+      if (result.success) {
+        alert(`✅ تم تجديد الاشتراك حتى ${newEndDate}`);
+        setShowRenewModal(false);
+        setSelectedMember(null);
+      } else {
+        alert('❌ خطأ: ' + result.error);
+      }
+    } catch (error) {
+      alert('❌ خطأ: ' + error.message);
+    }
+  }, [selectedMember, updateMember]);
 
   const isExpired = useCallback((member) => {
     return new Date(member.subscription_end) < new Date();
@@ -445,6 +527,15 @@ export default function MembersManagement() {
     );
   }, [handleViewDetails, handleEdit, handleDelete, handleRenewSubscription, isExpired, getDaysRemaining]);
 
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
@@ -458,7 +549,7 @@ export default function MembersManagement() {
             <div className="md:col-span-2">
               <input
                 type="text"
-                placeholder="🔍 ابحث بالاسم أو رقم التليفون..."
+                placeholder="🔍 ابحث بالاسم أو رقم التليفون أو ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -541,13 +632,7 @@ export default function MembersManagement() {
           <EditModal
             member={selectedMember}
             onClose={() => setShowEditModal(false)}
-            onSave={(data) => {
-              setMembers(prev => prev.map(m => 
-                m.id === selectedMember.id ? { ...m, ...data } : m
-              ));
-              alert('✅ تم تحديث البيانات بنجاح');
-              setShowEditModal(false);
-            }}
+            onSave={handleSaveEdit}
           />
         )}
 
@@ -555,30 +640,7 @@ export default function MembersManagement() {
           <RenewModal
             member={selectedMember}
             onClose={() => setShowRenewModal(false)}
-            onRenew={() => {
-              const today = new Date().toISOString().split('T')[0];
-              let months = 1;
-              
-              switch(selectedMember.subscription_type) {
-                case '3شهور': months = 3; break;
-                case '6شهور': months = 6; break;
-                case 'سنوي': months = 12; break;
-                default: months = 1;
-              }
-
-              const endDate = new Date();
-              endDate.setMonth(endDate.getMonth() + months);
-              const newEndDate = endDate.toISOString().split('T')[0];
-
-              setMembers(prev => prev.map(m => 
-                m.id === selectedMember.id 
-                  ? { ...m, subscription_start: today, subscription_end: newEndDate }
-                  : m
-              ));
-
-              alert(`✅ تم تجديد الاشتراك حتى ${newEndDate}`);
-              setShowRenewModal(false);
-            }}
+            onRenew={handleConfirmRenew}
           />
         )}
       </div>

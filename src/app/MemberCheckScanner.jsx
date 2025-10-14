@@ -23,38 +23,55 @@ export default function MemberCheckScanner() {
     return audioContextRef.current;
   }, []);
 
-  // Focus واحد مدمج - بدون setTimeout
+  // ✅ FIX 1: Focus مبسط - بدون تعقيد
   useEffect(() => {
-    if (showModal && !showResult && searchInputRef.current) {
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
-    } else if (showResult && !isChecking && nextSearchInputRef.current) {
-      requestAnimationFrame(() => {
-        nextSearchInputRef.current?.focus();
-        nextSearchInputRef.current?.select();
-      });
-    }
-  }, [showModal, showResult, isChecking]);
+    if (!showModal) return;
+    
+    // Small delay عشان الـ modal يظهر الأول
+    const timer = setTimeout(() => {
+      if (showResult && nextSearchInputRef.current) {
+        nextSearchInputRef.current.focus();
+      } else if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    }, 100);
 
-  // Global keyboard - مبسط
+    return () => clearTimeout(timer);
+  }, [showModal, showResult]);
+
+  // ✅ FIX 2: Global keyboard بس لما المودال مفتوح
   useEffect(() => {
-    if (!showResult) return;
+    // بس لو المودال مفتوح AND نتيجة ظاهرة
+    if (!showModal || !showResult) return;
 
     const handleKeyDown = (e) => {
-      const target = e.target;
-      const isInput = target === nextSearchInputRef.current;
+      // تجاهل لو في modifier keys
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
       
-      if (!isInput && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // تجاهل special keys
+      if (e.key.length !== 1) return;
+      
+      const target = e.target;
+      const isNextInput = target === nextSearchInputRef.current;
+      
+      // بس لو مش في الـ input بتاعنا
+      if (!isNextInput) {
         e.preventDefault();
-        nextSearchInputRef.current?.focus();
+        e.stopPropagation();
+        
+        // حط الحرف في الـ input
+        if (nextSearchInputRef.current) {
+          nextSearchInputRef.current.focus();
+          // append الحرف للـ value الموجود
+          setNextSearchValue(prev => prev + e.key);
+        }
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown, { passive: false });
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [showResult]);
+    // addEventListener بس لما المودال مفتوح
+    document.addEventListener('keydown', handleKeyDown, true); // capture phase
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [showModal, showResult]);
 
   const playSuccessSound = useCallback(() => {
     const ctx = getAudioContext();
@@ -133,7 +150,6 @@ export default function MemberCheckScanner() {
   }, []);
 
   const processMemberResult = useCallback((member, searchId) => {
-    // تجاهل النتائج الملغاة والقديمة
     if (cancelledSearchesRef.current.has(searchId) || searchId !== searchIdRef.current) {
       return;
     }
@@ -191,16 +207,13 @@ export default function MemberCheckScanner() {
   }, [playSuccessSound, playErrorSound]);
 
   const performSearch = useCallback(async (searchTerm) => {
-    // إلغاء البحث السابق
     if (searchIdRef.current > 0) {
       cancelledSearchesRef.current.add(searchIdRef.current);
     }
 
-    // زيادة search ID
     searchIdRef.current += 1;
     const currentSearchId = searchIdRef.current;
 
-    // مسح النتيجة القديمة
     setScanResult(null);
 
     if (!window.electronAPI) {
@@ -218,13 +231,11 @@ export default function MemberCheckScanner() {
     try {
       const result = await window.electronAPI.getMembers();
       
-      // تأكد إن ده لسه آخر search
       if (currentSearchId !== searchIdRef.current) return;
       
       if (result.success && result.data) {
         const searchLower = searchTerm.toLowerCase();
         
-        // بحث محسّن
         const member = result.data.find(m => {
           if (!m) return false;
           return String(m.id || '') === searchLower || 
@@ -329,7 +340,6 @@ export default function MemberCheckScanner() {
                 onKeyDown={handleKeyPress}
                 placeholder="اسم العضو أو ID..."
                 disabled={isChecking}
-                autoFocus
                 autoComplete="off"
                 className="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl text-white text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none text-center transition-all disabled:opacity-50"
               />
@@ -427,7 +437,6 @@ export default function MemberCheckScanner() {
                     onKeyDown={handleNextKeyPress}
                     placeholder="اكتب هنا فورًا..."
                     disabled={isChecking}
-                    autoFocus
                     autoComplete="off"
                     className="w-full px-4 py-3 bg-white text-gray-900 rounded-lg text-center font-bold text-lg focus:ring-4 focus:ring-white focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-500"
                   />

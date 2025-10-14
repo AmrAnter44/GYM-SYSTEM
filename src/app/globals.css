@@ -37,3 +37,10 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #718096;
 }
+body {
+  pointer-events: auto !important;
+}
+
+body * {
+  pointer-events: auto !important;
+}

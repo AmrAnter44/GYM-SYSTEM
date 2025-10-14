@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════════
-// main.js - Electron Main Process with better-sqlite3
-// مع دعم PT + InBody + Day Use + Auto ID
+// main.js - Electron Main Process - FIXED
+// ✅ حل مشكلة الـ Focus بعد Add/Delete
 // ═══════════════════════════════════════════════════════════
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
 const Database = require('better-sqlite3');
@@ -20,19 +20,15 @@ function initializeDatabase() {
   const dbPath = path.join(app.getPath('userData'), 'gym_database.db');
   console.log('📂 Database path:', dbPath);
   
-  db = new Database(dbPath, {
-    verbose: isDev ? console.log : null
-  });
+  db = new Database(dbPath, { verbose: isDev ? console.log : null });
 
   // Performance optimizations
   db.pragma('journal_mode = WAL');
   db.pragma('cache_size = -10000');
   db.pragma('synchronous = NORMAL');
   db.pragma('temp_store = MEMORY');
-  db.pragma('mmap_size = 30000000000');
-  db.pragma('auto_vacuum = INCREMENTAL');
 
-  console.log('✅ Database pragmas configured');
+  console.log('✅ Database initialized');
 
   // Create tables
   db.exec(`
@@ -109,8 +105,6 @@ function initializeDatabase() {
     )
   `);
 
-  console.log('✅ Database tables created');
-
   // Create indexes
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_members_name ON members(name)',
@@ -124,9 +118,7 @@ function initializeDatabase() {
   ];
 
   indexes.forEach(sql => db.exec(sql));
-  db.exec('ANALYZE');
-
-  console.log('✅ Database indexes created');
+  console.log('✅ Database tables and indexes created');
 
   return db;
 }
@@ -138,267 +130,306 @@ function initializeDatabase() {
 class DatabaseManager {
   constructor(database) {
     this.db = database;
-    this.preparedStatements = {};
-    this.initializePreparedStatements();
   }
 
-  initializePreparedStatements() {
-    // Members
-    this.preparedStatements.getAllMembers = this.db.prepare(`SELECT * FROM members ORDER BY created_at DESC`);
-    this.preparedStatements.insertMember = this.db.prepare(`
-      INSERT INTO members (custom_id, name, phone, photo, subscription_type, subscription_start, subscription_end,
-        payment_type, total_amount, paid_amount, remaining_amount, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this.preparedStatements.deleteMember = this.db.prepare(`DELETE FROM members WHERE id = ?`);
-
-    // ═══ AUTO ID للأعضاء (NEW!) ═══
-    this.preparedStatements.getHighestCustomId = this.db.prepare(`
-      SELECT custom_id FROM members 
-      WHERE custom_id IS NOT NULL 
-      AND custom_id != ''
-      ORDER BY CAST(custom_id AS INTEGER) DESC 
-      LIMIT 1
-    `);
-
-    // Visitors
-    this.preparedStatements.getAllVisitors = this.db.prepare(`SELECT * FROM visitors ORDER BY createdAt DESC`);
-    this.preparedStatements.insertVisitor = this.db.prepare(`
-      INSERT INTO visitors (name, phone, notes, recordedBy, createdAt) VALUES (?, ?, ?, ?, ?)
-    `);
-    this.preparedStatements.deleteVisitor = this.db.prepare(`DELETE FROM visitors WHERE id = ?`);
-
-    // PT Clients
-    this.preparedStatements.getAllPTClients = this.db.prepare(`SELECT * FROM pt_clients ORDER BY created_at DESC`);
-    this.preparedStatements.insertPTClient = this.db.prepare(`
-      INSERT INTO pt_clients (custom_id, client_name, phone, coach_name, total_sessions, completed_sessions,
-        remaining_sessions, total_amount, paid_amount, remaining_amount, start_date, end_date, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    this.preparedStatements.deletePTClient = this.db.prepare(`DELETE FROM pt_clients WHERE id = ?`);
-
-    // ═══ AUTO ID للـ PT (NEW!) ═══
-    this.preparedStatements.getHighestPTCustomId = this.db.prepare(`
-      SELECT custom_id FROM pt_clients 
-      WHERE custom_id IS NOT NULL 
-      AND custom_id != ''
-      ORDER BY CAST(custom_id AS INTEGER) DESC 
-      LIMIT 1
-    `);
-
-    // InBody Services
-    this.preparedStatements.getAllInBodyServices = this.db.prepare(`SELECT * FROM inbody_services ORDER BY created_at DESC`);
-    this.preparedStatements.insertInBodyService = this.db.prepare(`
-      INSERT INTO inbody_services (client_name, phone, service_price, staff_name, notes) VALUES (?, ?, ?, ?, ?)
-    `);
-    this.preparedStatements.deleteInBodyService = this.db.prepare(`DELETE FROM inbody_services WHERE id = ?`);
-
-    // Day Use Services
-    this.preparedStatements.getAllDayUseServices = this.db.prepare(`SELECT * FROM dayuse_services ORDER BY created_at DESC`);
-    this.preparedStatements.insertDayUseService = this.db.prepare(`
-      INSERT INTO dayuse_services (client_name, phone, service_price, staff_name, notes) VALUES (?, ?, ?, ?, ?)
-    `);
-    this.preparedStatements.deleteDayUseService = this.db.prepare(`DELETE FROM dayuse_services WHERE id = ?`);
-
-    console.log('✅ Prepared statements initialized');
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // 👥 MEMBERS
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ MEMBERS ═══
   getAllMembers() {
-    return this.preparedStatements.getAllMembers.all();
+    try {
+      return this.db.prepare('SELECT * FROM members ORDER BY created_at DESC').all();
+    } catch (error) {
+      console.error('Error getting members:', error);
+      throw error;
+    }
   }
 
   addMember(data) {
-    const result = this.preparedStatements.insertMember.run(
-      data.custom_id || null, data.name, data.phone, data.photo || null,
-      data.subscriptionType, data.subscriptionStart, data.subscriptionEnd,
-      data.paymentType, data.totalAmount || 0, data.paidAmount || 0,
-      data.remainingAmount || 0, data.notes || ''
-    );
-    return { success: true, id: result.lastInsertRowid };
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO members (custom_id, name, phone, photo, subscription_type, subscription_start, 
+          subscription_end, payment_type, total_amount, paid_amount, remaining_amount, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        data.custom_id || null, data.name, data.phone, data.photo || null,
+        data.subscriptionType, data.subscriptionStart, data.subscriptionEnd,
+        data.paymentType, data.totalAmount || 0, data.paidAmount || 0,
+        data.remainingAmount || 0, data.notes || ''
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding member:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   updateMember(id, data) {
-    const fields = [];
-    const values = [];
-    Object.keys(data).forEach(key => {
-      fields.push(`${key} = ?`);
-      values.push(data[key]);
-    });
-    values.push(id);
-    const sql = `UPDATE members SET ${fields.join(', ')} WHERE id = ?`;
-    this.db.prepare(sql).run(...values);
-    return { success: true };
+    try {
+      const fields = [];
+      const values = [];
+      
+      Object.keys(data).forEach(key => {
+        fields.push(`${key} = ?`);
+        values.push(data[key]);
+      });
+      
+      values.push(id);
+      const sql = `UPDATE members SET ${fields.join(', ')} WHERE id = ?`;
+      
+      this.db.prepare(sql).run(...values);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating member:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   deleteMember(id) {
-    this.preparedStatements.deleteMember.run(id);
-    return { success: true };
+    try {
+      this.db.prepare('DELETE FROM members WHERE id = ?').run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting member:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  // ═══ GET HIGHEST CUSTOM ID للأعضاء (NEW!) ═══
   getHighestCustomId() {
     try {
-      const result = this.preparedStatements.getHighestCustomId.get();
-      return { 
-        success: true, 
-        highestId: result?.custom_id || null 
-      };
+      const result = this.db.prepare(`
+        SELECT custom_id FROM members 
+        WHERE custom_id IS NOT NULL AND custom_id != ''
+        ORDER BY CAST(custom_id AS INTEGER) DESC 
+        LIMIT 1
+      `).get();
+      
+      return { success: true, highestId: result?.custom_id || null };
     } catch (error) {
       console.error('Error getting highest custom ID:', error);
       return { success: false, error: error.message };
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 👥 VISITORS
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ VISITORS ═══
   getAllVisitors() {
-    return this.preparedStatements.getAllVisitors.all();
+    try {
+      return this.db.prepare('SELECT * FROM visitors ORDER BY createdAt DESC').all();
+    } catch (error) {
+      console.error('Error getting visitors:', error);
+      throw error;
+    }
   }
 
   addVisitor(data) {
-    const result = this.preparedStatements.insertVisitor.run(
-      data.name, data.phone, data.notes || '', data.recordedBy || '',
-      data.createdAt || new Date().toISOString()
-    );
-    return { success: true, id: result.lastInsertRowid };
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO visitors (name, phone, notes, recordedBy, createdAt) VALUES (?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        data.name, data.phone, data.notes || '', data.recordedBy || '',
+        data.createdAt || new Date().toISOString()
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding visitor:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   deleteVisitor(id) {
-    this.preparedStatements.deleteVisitor.run(id);
-    return { success: true };
+    try {
+      this.db.prepare('DELETE FROM visitors WHERE id = ?').run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting visitor:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 💪 PT CLIENTS
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ PT CLIENTS ═══
   getAllPTClients() {
-    return this.preparedStatements.getAllPTClients.all();
+    try {
+      return this.db.prepare('SELECT * FROM pt_clients ORDER BY created_at DESC').all();
+    } catch (error) {
+      console.error('Error getting PT clients:', error);
+      throw error;
+    }
   }
 
   addPTClient(data) {
-    const result = this.preparedStatements.insertPTClient.run(
-      data.custom_id || null, data.client_name, data.phone, data.coach_name,
-      data.total_sessions || 0, data.completed_sessions || 0, data.remaining_sessions || 0,
-      data.total_amount || 0, data.paid_amount || 0, data.remaining_amount || 0,
-      data.start_date, data.end_date, data.notes || ''
-    );
-    return { success: true, id: result.lastInsertRowid };
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO pt_clients (custom_id, client_name, phone, coach_name, total_sessions, 
+          completed_sessions, remaining_sessions, total_amount, paid_amount, remaining_amount, 
+          start_date, end_date, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        data.custom_id || null, data.client_name, data.phone, data.coach_name,
+        data.total_sessions || 0, data.completed_sessions || 0, data.remaining_sessions || 0,
+        data.total_amount || 0, data.paid_amount || 0, data.remaining_amount || 0,
+        data.start_date, data.end_date, data.notes || ''
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding PT client:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   updatePTClient(id, data) {
-    const fields = [];
-    const values = [];
-    Object.keys(data).forEach(key => {
-      fields.push(`${key} = ?`);
-      values.push(data[key]);
-    });
-    values.push(id);
-    const sql = `UPDATE pt_clients SET ${fields.join(', ')} WHERE id = ?`;
-    this.db.prepare(sql).run(...values);
-    return { success: true };
+    try {
+      const fields = [];
+      const values = [];
+      
+      Object.keys(data).forEach(key => {
+        fields.push(`${key} = ?`);
+        values.push(data[key]);
+      });
+      
+      values.push(id);
+      const sql = `UPDATE pt_clients SET ${fields.join(', ')} WHERE id = ?`;
+      
+      this.db.prepare(sql).run(...values);
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating PT client:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   deletePTClient(id) {
-    this.preparedStatements.deletePTClient.run(id);
-    return { success: true };
+    try {
+      this.db.prepare('DELETE FROM pt_clients WHERE id = ?').run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting PT client:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  // ═══ GET HIGHEST PT CUSTOM ID (NEW!) ═══
   getHighestPTCustomId() {
     try {
-      const result = this.preparedStatements.getHighestPTCustomId.get();
-      return { 
-        success: true, 
-        highestId: result?.custom_id || null 
-      };
+      const result = this.db.prepare(`
+        SELECT custom_id FROM pt_clients 
+        WHERE custom_id IS NOT NULL AND custom_id != ''
+        ORDER BY CAST(custom_id AS INTEGER) DESC 
+        LIMIT 1
+      `).get();
+      
+      return { success: true, highestId: result?.custom_id || null };
     } catch (error) {
       console.error('Error getting highest PT custom ID:', error);
       return { success: false, error: error.message };
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 📊 INBODY SERVICES
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ INBODY SERVICES ═══
   getAllInBodyServices() {
-    return this.preparedStatements.getAllInBodyServices.all();
+    try {
+      return this.db.prepare('SELECT * FROM inbody_services ORDER BY created_at DESC').all();
+    } catch (error) {
+      console.error('Error getting InBody services:', error);
+      throw error;
+    }
   }
 
   addInBodyService(data) {
-    const result = this.preparedStatements.insertInBodyService.run(
-      data.client_name, data.phone, data.service_price || 0,
-      data.staff_name, data.notes || ''
-    );
-    return { success: true, id: result.lastInsertRowid };
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO inbody_services (client_name, phone, service_price, staff_name, notes) 
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        data.client_name, data.phone, data.service_price || 0,
+        data.staff_name, data.notes || ''
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding InBody service:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   deleteInBodyService(id) {
-    this.preparedStatements.deleteInBodyService.run(id);
-    return { success: true };
+    try {
+      this.db.prepare('DELETE FROM inbody_services WHERE id = ?').run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting InBody service:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 🏃 DAY USE SERVICES
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ DAY USE SERVICES ═══
   getAllDayUseServices() {
-    return this.preparedStatements.getAllDayUseServices.all();
+    try {
+      return this.db.prepare('SELECT * FROM dayuse_services ORDER BY created_at DESC').all();
+    } catch (error) {
+      console.error('Error getting Day Use services:', error);
+      throw error;
+    }
   }
 
   addDayUseService(data) {
-    const result = this.preparedStatements.insertDayUseService.run(
-      data.client_name, data.phone, data.service_price || 0,
-      data.staff_name, data.notes || ''
-    );
-    return { success: true, id: result.lastInsertRowid };
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO dayuse_services (client_name, phone, service_price, staff_name, notes) 
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      
+      const result = stmt.run(
+        data.client_name, data.phone, data.service_price || 0,
+        data.staff_name, data.notes || ''
+      );
+      
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      console.error('Error adding Day Use service:', error);
+      return { success: false, error: error.message };
+    }
   }
 
   deleteDayUseService(id) {
-    this.preparedStatements.deleteDayUseService.run(id);
-    return { success: true };
+    try {
+      this.db.prepare('DELETE FROM dayuse_services WHERE id = ?').run(id);
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting Day Use service:', error);
+      return { success: false, error: error.message };
+    }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // 📊 STATISTICS
-  // ═══════════════════════════════════════════════════════════
-
+  // ═══ STATISTICS ═══
   getStatistics() {
-    const total = this.db.prepare('SELECT COUNT(*) as count FROM members').get().count;
-    const revenue = this.db.prepare('SELECT SUM(paid_amount) as total FROM members').get().total || 0;
-    return { totalMembers: total, totalRevenue: revenue };
+    try {
+      const total = this.db.prepare('SELECT COUNT(*) as count FROM members').get().count;
+      const revenue = this.db.prepare('SELECT SUM(paid_amount) as total FROM members').get().total || 0;
+      return { totalMembers: total, totalRevenue: revenue };
+    } catch (error) {
+      console.error('Error getting statistics:', error);
+      throw error;
+    }
   }
 
   getOtherServicesStatistics() {
     try {
-      // InBody Statistics
       const inbodyCount = this.db.prepare('SELECT COUNT(*) as count FROM inbody_services').get().count;
       const inbodyRevenue = this.db.prepare('SELECT SUM(service_price) as total FROM inbody_services').get().total || 0;
-
-      // Day Use Statistics
       const dayuseCount = this.db.prepare('SELECT COUNT(*) as count FROM dayuse_services').get().count;
       const dayuseRevenue = this.db.prepare('SELECT SUM(service_price) as total FROM dayuse_services').get().total || 0;
 
       return {
-        inbody: {
-          totalServices: inbodyCount,
-          totalRevenue: inbodyRevenue
-        },
-        dayuse: {
-          totalServices: dayuseCount,
-          totalRevenue: dayuseRevenue
-        },
-        combined: {
-          totalServices: inbodyCount + dayuseCount,
-          totalRevenue: inbodyRevenue + dayuseRevenue
-        }
+        inbody: { totalServices: inbodyCount, totalRevenue: inbodyRevenue },
+        dayuse: { totalServices: dayuseCount, totalRevenue: dayuseRevenue },
+        combined: { totalServices: inbodyCount + dayuseCount, totalRevenue: inbodyRevenue + dayuseRevenue }
       };
     } catch (error) {
       console.error('Error getting other services statistics:', error);
@@ -407,8 +438,12 @@ class DatabaseManager {
   }
 
   close() {
-    this.db.close();
-    console.log('✅ Database closed successfully');
+    try {
+      this.db.close();
+      console.log('✅ Database closed');
+    } catch (error) {
+      console.error('Error closing database:', error);
+    }
   }
 }
 
@@ -431,196 +466,140 @@ function createWindow() {
   mainWindow.loadURL(startURL);
 
   if (isDev) mainWindow.webContents.openDevTools();
+
+  // ✅ FIX: Prevent focus issues after operations
+  mainWindow.on('focus', () => {
+    console.log('Window focused');
+  });
+
+  mainWindow.on('blur', () => {
+    console.log('Window blurred');
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📡 IPC HANDLERS
+// 📡 IPC HANDLERS - WITH PROPER ASYNC/AWAIT
 // ═══════════════════════════════════════════════════════════
 
-// ═══ MEMBERS ═══
+// ✅ WRAPPER to prevent focus issues
+function createSafeHandler(handler) {
+  return async (event, ...args) => {
+    try {
+      const result = await handler(...args);
+      
+      // ✅ FIX: Ensure window stays focused after operation
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        setImmediate(() => {
+          if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocusable()) {
+            mainWindow.focus();
+          }
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Handler error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+}
 
-ipcMain.handle('get-members', async () => {
-  try {
-    return { success: true, data: dbManager.getAllMembers() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// MEMBERS
+ipcMain.handle('get-members', createSafeHandler(async () => {
+  const data = dbManager.getAllMembers();
+  return { success: true, data };
+}));
 
-ipcMain.handle('add-member', async (event, data) => {
-  try {
-    return dbManager.addMember(data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('add-member', createSafeHandler(async (data) => {
+  return dbManager.addMember(data);
+}));
 
-ipcMain.handle('update-member', async (event, id, data) => {
-  try {
-    return dbManager.updateMember(id, data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('update-member', createSafeHandler(async (id, data) => {
+  return dbManager.updateMember(id, data);
+}));
 
-ipcMain.handle('delete-member', async (event, id) => {
-  try {
-    return dbManager.deleteMember(id);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('delete-member', createSafeHandler(async (id) => {
+  return dbManager.deleteMember(id);
+}));
 
-// ═══ AUTO ID للأعضاء (NEW!) ═══
+ipcMain.handle('get-highest-custom-id', createSafeHandler(async () => {
+  return dbManager.getHighestCustomId();
+}));
 
-ipcMain.handle('get-highest-custom-id', async () => {
-  try {
-    return dbManager.getHighestCustomId();
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// VISITORS
+ipcMain.handle('get-visitors', createSafeHandler(async () => {
+  const data = dbManager.getAllVisitors();
+  return { success: true, data };
+}));
 
-// ═══ VISITORS ═══
+ipcMain.handle('add-visitor', createSafeHandler(async (data) => {
+  return dbManager.addVisitor(data);
+}));
 
-ipcMain.handle('get-visitors', async () => {
-  try {
-    return { success: true, data: dbManager.getAllVisitors() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('delete-visitor', createSafeHandler(async (id) => {
+  return dbManager.deleteVisitor(id);
+}));
 
-ipcMain.handle('add-visitor', async (event, data) => {
-  try {
-    return dbManager.addVisitor(data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// PT CLIENTS
+ipcMain.handle('get-pt-clients', createSafeHandler(async () => {
+  const data = dbManager.getAllPTClients();
+  return { success: true, data };
+}));
 
-ipcMain.handle('delete-visitor', async (event, id) => {
-  try {
-    return dbManager.deleteVisitor(id);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('add-pt-client', createSafeHandler(async (data) => {
+  return dbManager.addPTClient(data);
+}));
 
-// ═══ PT CLIENTS ═══
+ipcMain.handle('update-pt-client', createSafeHandler(async (id, data) => {
+  return dbManager.updatePTClient(id, data);
+}));
 
-ipcMain.handle('get-pt-clients', async () => {
-  try {
-    return { success: true, data: dbManager.getAllPTClients() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('delete-pt-client', createSafeHandler(async (id) => {
+  return dbManager.deletePTClient(id);
+}));
 
-ipcMain.handle('add-pt-client', async (event, data) => {
-  try {
-    return dbManager.addPTClient(data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('get-highest-pt-custom-id', createSafeHandler(async () => {
+  return dbManager.getHighestPTCustomId();
+}));
 
-ipcMain.handle('update-pt-client', async (event, id, data) => {
-  try {
-    return dbManager.updatePTClient(id, data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// INBODY SERVICES
+ipcMain.handle('get-inbody-services', createSafeHandler(async () => {
+  const data = dbManager.getAllInBodyServices();
+  return { success: true, data };
+}));
 
-ipcMain.handle('delete-pt-client', async (event, id) => {
-  try {
-    return dbManager.deletePTClient(id);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('add-inbody-service', createSafeHandler(async (data) => {
+  return dbManager.addInBodyService(data);
+}));
 
-// ═══ AUTO ID للـ PT (NEW!) ═══
+ipcMain.handle('delete-inbody-service', createSafeHandler(async (id) => {
+  return dbManager.deleteInBodyService(id);
+}));
 
-ipcMain.handle('get-highest-pt-custom-id', async () => {
-  try {
-    return dbManager.getHighestPTCustomId();
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// DAY USE SERVICES
+ipcMain.handle('get-dayuse-services', createSafeHandler(async () => {
+  const data = dbManager.getAllDayUseServices();
+  return { success: true, data };
+}));
 
-// ═══ INBODY SERVICES ═══
+ipcMain.handle('add-dayuse-service', createSafeHandler(async (data) => {
+  return dbManager.addDayUseService(data);
+}));
 
-ipcMain.handle('get-inbody-services', async () => {
-  try {
-    return { success: true, data: dbManager.getAllInBodyServices() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('delete-dayuse-service', createSafeHandler(async (id) => {
+  return dbManager.deleteDayUseService(id);
+}));
 
-ipcMain.handle('add-inbody-service', async (event, data) => {
-  try {
-    return dbManager.addInBodyService(data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+// STATISTICS
+ipcMain.handle('get-statistics', createSafeHandler(async () => {
+  const data = dbManager.getStatistics();
+  return { success: true, data };
+}));
 
-ipcMain.handle('delete-inbody-service', async (event, id) => {
-  try {
-    return dbManager.deleteInBodyService(id);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-// ═══ DAY USE SERVICES ═══
-
-ipcMain.handle('get-dayuse-services', async () => {
-  try {
-    return { success: true, data: dbManager.getAllDayUseServices() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('add-dayuse-service', async (event, data) => {
-  try {
-    return dbManager.addDayUseService(data);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('delete-dayuse-service', async (event, id) => {
-  try {
-    return dbManager.deleteDayUseService(id);
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-// ═══ STATISTICS ═══
-
-ipcMain.handle('get-statistics', async () => {
-  try {
-    return { success: true, data: dbManager.getStatistics() };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('get-other-services-statistics', async () => {
-  try {
-    const stats = dbManager.getOtherServicesStatistics();
-    return { success: true, data: stats };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-});
+ipcMain.handle('get-other-services-statistics', createSafeHandler(async () => {
+  const data = dbManager.getOtherServicesStatistics();
+  return { success: true, data };
+}));
 
 // ═══════════════════════════════════════════════════════════
 // 🚀 APP LIFECYCLE

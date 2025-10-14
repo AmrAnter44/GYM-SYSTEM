@@ -2,512 +2,384 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
 export default function MemberCheckScanner() {
-  const [showModal, setShowModal] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [idInput, setIdInput] = useState('');
+  const [result, setResult] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [showResult, setShowResult] = useState(false);
-  const [nextSearchValue, setNextSearchValue] = useState('');
   
-  const searchInputRef = useRef(null);
-  const nextSearchInputRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const searchIdRef = useRef(0);
-  const cancelledSearchesRef = useRef(new Set());
+  const inputRef = useRef(null);
+  const audioRef = useRef(null);
 
-  // Lazy AudioContext initialization
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current && typeof window !== 'undefined') {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+  // ═══════════════════════════════════════════════════════════
+  // 🔊 VOICE & SOUND
+  // ═══════════════════════════════════════════════════════════
+  
+  const speak = useCallback((text) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ar-SA';
+      utterance.rate = 1.2;
+      utterance.pitch = 1;
+      window.speechSynthesis.speak(utterance);
     }
-    return audioContextRef.current;
   }, []);
 
-  // ✅ FIX 1: Focus مبسط - بدون تعقيد
-  useEffect(() => {
-    if (!showModal) return;
+  const playBeep = useCallback((success) => {
+    if (!audioRef.current) {
+      audioRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const ctx = audioRef.current;
+    const frequencies = success ? [800, 1000, 1200] : [400, 300];
     
-    // Small delay عشان الـ modal يظهر الأول
-    const timer = setTimeout(() => {
-      if (showResult && nextSearchInputRef.current) {
-        nextSearchInputRef.current.focus();
-      } else if (searchInputRef.current) {
-        searchInputRef.current.focus();
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [showModal, showResult]);
-
-  // ✅ FIX 2: Global keyboard بس لما المودال مفتوح
-  useEffect(() => {
-    // بس لو المودال مفتوح AND نتيجة ظاهرة
-    if (!showModal || !showResult) return;
-
-    const handleKeyDown = (e) => {
-      // تجاهل لو في modifier keys
-      if (e.ctrlKey || e.altKey || e.metaKey) return;
-      
-      // تجاهل special keys
-      if (e.key.length !== 1) return;
-      
-      const target = e.target;
-      const isNextInput = target === nextSearchInputRef.current;
-      
-      // بس لو مش في الـ input بتاعنا
-      if (!isNextInput) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // حط الحرف في الـ input
-        if (nextSearchInputRef.current) {
-          nextSearchInputRef.current.focus();
-          // append الحرف للـ value الموجود
-          setNextSearchValue(prev => prev + e.key);
-        }
-      }
-    };
-
-    // addEventListener بس لما المودال مفتوح
-    document.addEventListener('keydown', handleKeyDown, true); // capture phase
-    return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [showModal, showResult]);
-
-  const playSuccessSound = useCallback(() => {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    
-    const playTone = (freq, delay, duration) => {
+    frequencies.forEach((freq, i) => {
       setTimeout(() => {
-        try {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.frequency.value = freq;
-          osc.type = 'sine';
-          gain.gain.setValueAtTime(0.5, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-          osc.start(ctx.currentTime);
-          osc.stop(ctx.currentTime + duration);
-        } catch (e) {
-          // Silent fail
-        }
-      }, delay);
-    };
-
-    playTone(880, 0, 0.2);
-    playTone(1108.73, 100, 0.25);
-    playTone(1318.51, 200, 0.3);
-  }, [getAudioContext]);
-
-  const playErrorSound = useCallback(() => {
-    const ctx = getAudioContext();
-    if (!ctx) return;
-    
-    const playTone = (freq, delay, duration) => {
-      setTimeout(() => {
-        try {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.frequency.value = freq;
-          osc.type = 'square';
-          gain.gain.setValueAtTime(0.6, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-          osc.start(ctx.currentTime);
-          osc.stop(ctx.currentTime + duration);
-        } catch (e) {
-          // Silent fail
-        }
-      }, delay);
-    };
-
-    playTone(400, 0, 0.12);
-    playTone(300, 100, 0.12);
-    playTone(250, 200, 0.25);
-  }, [getAudioContext]);
-
-  const handleOpenModal = useCallback(() => {
-    setShowModal(true);
-    setSearchValue('');
-    setScanResult(null);
-    setShowResult(false);
-    setNextSearchValue('');
-    setIsChecking(false);
-    // ابدأ من 0 عشان أول search يشتغل
-    searchIdRef.current = 0;
-    cancelledSearchesRef.current.clear();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = success ? 'sine' : 'square';
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.15);
+      }, i * 120);
+    });
   }, []);
 
-  const handleCloseModal = useCallback(() => {
-    setShowModal(false);
-    setSearchValue('');
-    setScanResult(null);
-    setShowResult(false);
-    setNextSearchValue('');
-    setIsChecking(false);
-    searchIdRef.current = 0;
-    cancelledSearchesRef.current.clear();
-  }, []);
-
-  const processMemberResult = useCallback((member, searchId) => {
-    // تأكد إن ده آخر search
-    if (cancelledSearchesRef.current.has(searchId) || searchId !== searchIdRef.current) {
-      return;
-    }
-
-    // لو مفيش عضو
-    if (!member) {
-      playErrorSound();
-      setScanResult({
-        success: false,
-        message: '❌ عضو غير موجود',
-        details: 'لم يتم العثور على عضو بهذا الاسم أو الرقم'
-      });
-      setShowResult(true);
-      setIsChecking(false);
-      return;
-    }
-
-    const endDate = new Date(member.subscription_end || member.subscriptionEnd);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const isExpired = endDate < today;
-    const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-
-    if (isExpired) {
-      playErrorSound();
-      setScanResult({
-        success: false,
-        name: member.name,
-        id: member.custom_id || member.id,
-        message: '⚠️ اشتراك منتهي',
-        details: `انتهى منذ ${Math.abs(daysLeft)} يوم`,
-        phone: member.phone,
-        endDate: member.subscription_end || member.subscriptionEnd,
-        subscriptionType: member.subscription_type || member.subscriptionType
-      });
-    } else {
-      playSuccessSound();
-      const warningDays = 7;
-      setScanResult({
-        success: true,
-        name: member.name,
-        id: member.custom_id || member.id,
-        message: '✅ اشتراك صالح',
-        details: daysLeft <= warningDays
-          ? `⏰ ينتهي خلال ${daysLeft} يوم` 
-          : `صالح لمدة ${daysLeft} يوم`,
-        phone: member.phone,
-        endDate: member.subscription_end || member.subscriptionEnd,
-        subscriptionType: member.subscription_type || member.subscriptionType,
-        warning: daysLeft <= warningDays
-      });
-    }
+  // ═══════════════════════════════════════════════════════════
+  // 🔍 CHECK MEMBER
+  // ═══════════════════════════════════════════════════════════
+  
+  const checkMember = useCallback(async (id) => {
+    if (!id || isChecking) return;
     
-    setShowResult(true);
-    setIsChecking(false);
-  }, [playSuccessSound, playErrorSound]);
-
-  const performSearch = useCallback(async (searchTerm) => {
-    // ألغي أي search قديم
-    if (searchIdRef.current > 0) {
-      cancelledSearchesRef.current.add(searchIdRef.current);
-    }
-
-    // زود الـ ID قبل ما تبدأ
-    searchIdRef.current += 1;
-    const currentSearchId = searchIdRef.current;
-
-    // امسح النتيجة القديمة
-    setScanResult(null);
-    setShowResult(false);
-
-    if (!window.electronAPI) {
-      playErrorSound();
-      setScanResult({
-        success: false,
-        message: '❌ خطأ في الاتصال',
-        details: 'تأكد من تشغيل التطبيق'
-      });
-      setShowResult(true);
-      setIsChecking(false);
-      return;
-    }
+    setIsChecking(true);
+    setResult(null);
 
     try {
-      const result = await window.electronAPI.getMembers();
+      const response = await window.electronAPI.getMembers();
       
-      if (currentSearchId !== searchIdRef.current) return;
-      
-      if (result.success && result.data) {
-        const searchLower = searchTerm.toLowerCase();
-        
-        const member = result.data.find(m => {
-          if (!m) return false;
-          return String(m.id || '') === searchLower || 
-                 String(m.custom_id || '') === searchLower || 
-                 (m.name || '').toLowerCase().includes(searchLower);
-        });
-        
-        processMemberResult(member || null, currentSearchId);
-      } else {
-        processMemberResult(null, currentSearchId);
+      if (!response.success || !response.data) {
+        throw new Error('فشل تحميل البيانات');
       }
-    } catch (error) {
-      if (currentSearchId !== searchIdRef.current) return;
+
+      const searchId = id.trim();
+      const member = response.data.find(m => 
+        String(m.id) === searchId ||
+        String(m.custom_id || '') === searchId
+      );
+
+      if (!member) {
+        playBeep(false);
+        speak('لا، العضو غير موجود');
+        setResult({
+          found: false,
+          message: '❌ غير موجود',
+          id: searchId
+        });
+        return;
+      }
+
+      const endDate = new Date(member.subscription_end);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       
-      playErrorSound();
-      setScanResult({
-        success: false,
-        message: '❌ خطأ في النظام',
-        details: error.message
+      const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+      const isExpired = daysLeft < 0;
+
+      if (isExpired) {
+        playBeep(false);
+        speak(`لا، اشتراك ${member.name} منتهي منذ ${Math.abs(daysLeft)} يوم`);
+        setResult({
+          found: true,
+          active: false,
+          member,
+          daysLeft,
+          message: '⚠️ منتهي'
+        });
+      } else {
+        playBeep(true);
+        const daysText = daysLeft === 1 ? 'يوم واحد' : `${daysLeft} يوم`;
+        speak(`نعم، ${member.name} مشترك، باقي ${daysText}`);
+        setResult({
+          found: true,
+          active: true,
+          member,
+          daysLeft,
+          warning: daysLeft <= 7,
+          message: '✅ مشترك'
+        });
+      }
+
+    } catch (error) {
+      playBeep(false);
+      speak('خطأ في النظام');
+      setResult({
+        found: false,
+        message: '❌ خطأ',
+        error: error.message
       });
-      setShowResult(true);
+    } finally {
       setIsChecking(false);
     }
-  }, [playErrorSound, processMemberResult]);
+  }, [isChecking, playBeep, speak]);
 
-  const checkMember = useCallback(() => {
-    const term = searchValue.trim();
-    if (!term || isChecking) return;
+  // ═══════════════════════════════════════════════════════════
+  // ⌨️ HANDLERS
+  // ═══════════════════════════════════════════════════════════
+  
+  const handleInputChange = useCallback((e) => {
+    const value = e.target.value;
+    if (value && !/^\d+$/.test(value)) return;
+    setIdInput(value);
+  }, []);
+
+  const handleOpen = useCallback(() => {
+    setIsOpen(true);
+    setIdInput('');
+    setResult(null);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+    setIdInput('');
+    setResult(null);
+    window.speechSynthesis?.cancel();
     
-    setIsChecking(true);
-    setSearchValue('');
-    performSearch(term);
-  }, [searchValue, isChecking, performSearch]);
+    // ✅ FIX: Return focus to body to prevent focus trap
+    setTimeout(() => {
+      document.body.focus();
+    }, 100);
+  }, []);
 
-  const handleNextScan = useCallback(() => {
-    const term = nextSearchValue.trim();
-    if (!term || isChecking) return;
+  const handleNewSearch = useCallback(() => {
+    setResult(null);
+    setIdInput('');
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
 
-    setIsChecking(true);
-    setNextSearchValue('');
-    performSearch(term);
-  }, [nextSearchValue, isChecking, performSearch]);
+  // ═══════════════════════════════════════════════════════════
+  // ✅ FIX: KEYBOARD HANDLER - ONLY WHEN MODAL IS OPEN
+  // ═══════════════════════════════════════════════════════════
+  
+  useEffect(() => {
+    if (!isOpen) return; // Only listen when modal is open
 
-  const handleKeyPress = useCallback((e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      checkMember();
-    }
-  }, [checkMember]);
+    const handleKeyDown = (e) => {
+      // Only handle if modal is actually open
+      if (!isOpen) return;
 
-  const handleNextKeyPress = useCallback((e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleNextScan();
-    }
-  }, [handleNextScan]);
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (idInput.trim() && !result) {
+          checkMember(idInput);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (result) {
+          handleNewSearch();
+        } else {
+          handleClose();
+        }
+      }
+    };
 
-  const handleQuickNext = useCallback(() => {
-    if (nextSearchValue.trim()) {
-      handleNextScan();
-    } else {
-      setShowResult(false);
-      setScanResult(null);
-      setSearchValue('');
-      setNextSearchValue('');
-    }
-  }, [nextSearchValue, handleNextScan]);
+    // Add listener
+    document.addEventListener('keydown', handleKeyDown);
+
+    // ✅ CLEANUP: Remove listener when modal closes
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, idInput, result, checkMember, handleNewSearch, handleClose]);
+
+  // ═══════════════════════════════════════════════════════════
+  // ✅ FIX: CLEANUP ON UNMOUNT
+  // ═══════════════════════════════════════════════════════════
+  
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis?.cancel();
+      if (audioRef.current) {
+        audioRef.current.close();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════
+  // 🎨 RENDER
+  // ═══════════════════════════════════════════════════════════
+
+  if (!isOpen) {
+    return (
+      <button
+        onClick={handleOpen}
+        className="fixed bottom-8 left-8 z-50 w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-2xl flex flex-col items-center justify-center text-white transition-transform hover:scale-110 active:scale-95"
+        title="تشيك ID"
+      >
+        <span className="text-3xl mb-1">🎯</span>
+        <span className="text-xs font-bold">تشيك</span>
+      </button>
+    );
+  }
 
   return (
-    <>
-      {/* Floating Check Button */}
-      <div className="fixed bottom-8 left-8 z-50">
-        <button
-          onClick={handleOpenModal}
-          className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-3xl transition-all duration-200 transform hover:scale-110 active:scale-95 bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
-          title="تشيك على عضو"
-          aria-label="فتح ماسح العضوية"
-        >
-          🔍
-        </button>
-      </div>
-
-      {/* Search Modal */}
-      {showModal && !showResult && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 animate-fadeIn"
-          onClick={(e) => e.target === e.currentTarget && handleCloseModal()}
-        >
-          <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700 max-w-md w-full animate-slideUp">
-            <div className="text-center mb-6">
-              <div className="text-6xl mb-4">🔍</div>
-              <h2 className="text-3xl font-bold text-white mb-2">تشيك على عضو</h2>
-              <p className="text-gray-400">ادخل اسم العضو أو رقم الـ ID</p>
+    <div 
+      className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
+      <div className="bg-gray-900 rounded-3xl shadow-2xl border-2 border-gray-700 w-full max-w-lg overflow-hidden">
+        
+        {!result ? (
+          <>
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-8 text-center">
+              <div className="text-7xl mb-4">🎯</div>
+              <h2 className="text-white text-3xl font-bold mb-2">تشيك على عضو</h2>
+              <p className="text-blue-200">ادخل رقم الـ ID</p>
             </div>
 
-            <div className="mb-6">
+            <div className="p-8">
               <input
-                ref={searchInputRef}
+                ref={inputRef}
                 type="text"
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="اسم العضو أو ID..."
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={idInput}
+                onChange={handleInputChange}
+                placeholder="123"
                 disabled={isChecking}
-                autoComplete="off"
-                className="w-full px-6 py-4 bg-gray-700 border-2 border-gray-600 rounded-xl text-white text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 focus:outline-none text-center transition-all disabled:opacity-50"
+                autoFocus
+                className="w-full px-6 py-6 bg-gray-800 border-3 border-gray-700 rounded-2xl text-white text-4xl text-center font-mono font-bold focus:border-blue-500 focus:ring-4 focus:ring-blue-500/50 focus:outline-none transition-all disabled:opacity-50"
               />
-            </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleCloseModal}
-                disabled={isChecking}
-                className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-white rounded-xl font-bold transition-all text-lg disabled:opacity-50"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={checkMember}
-                disabled={!searchValue.trim() || isChecking}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 active:scale-95 text-white rounded-xl font-bold transition-all text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isChecking ? '⏳ جاري...' : '✓ تشيك'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Result Modal */}
-      {showResult && scanResult && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 animate-fadeIn"
-          onClick={(e) => e.target === e.currentTarget && handleCloseModal()}
-        >
-          <div 
-            className={`rounded-2xl p-6 shadow-2xl max-w-md w-full animate-slideUp ${
-              scanResult.success 
-                ? scanResult.warning 
-                  ? 'bg-gradient-to-br from-yellow-600 to-orange-600' 
-                  : 'bg-gradient-to-br from-green-600 to-green-700'
-                : 'bg-gradient-to-br from-red-600 to-red-700'
-            }`}
-          >
-            <div className="text-center text-white">
-              <div className="text-7xl mb-3 animate-bounce">
-                {scanResult.success ? (scanResult.warning ? '⏰' : '✅') : '❌'}
-              </div>
-              
-              {scanResult.name && (
-                <>
-                  <h2 className="text-3xl font-bold mb-2">{scanResult.name}</h2>
-                  {scanResult.id && (
-                    <p className="text-lg opacity-75 mb-3">ID: {scanResult.id}</p>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleClose}
+                  disabled={isChecking}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-bold py-4 rounded-xl transition-all disabled:opacity-50"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={() => checkMember(idInput)}
+                  disabled={!idInput.trim() || isChecking}
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isChecking ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                      جاري...
+                    </span>
+                  ) : (
+                    '✓ تشيك'
                   )}
-                </>
-              )}
-              
-              <p className="text-3xl font-bold mb-3">{scanResult.message}</p>
-              
-              {scanResult.details && (
-                <p className="text-xl mb-3 opacity-90">{scanResult.details}</p>
-              )}
+                </button>
+              </div>
 
-              {scanResult.phone && (
-                <div className="bg-white bg-opacity-20 rounded-lg p-3 mb-3">
-                  <p className="text-sm opacity-75 mb-1">التليفون</p>
-                  <p className="text-lg font-bold">{scanResult.phone}</p>
-                </div>
-              )}
+              <div className="mt-6 text-center space-y-2">
+                <p className="text-gray-500 text-sm">💡 Enter للتشيك • ESC للإلغاء</p>
+                <p className="text-gray-600 text-xs">الأرقام فقط</p>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {result.found && result.active ? (
+              <div className={`${
+                result.warning 
+                  ? 'bg-gradient-to-br from-yellow-500 to-orange-500' 
+                  : 'bg-gradient-to-br from-green-500 to-green-600'
+              } p-8`}>
+                <div className="text-center text-white">
+                  <div className="text-8xl mb-6">{result.warning ? '⏰' : '✅'}</div>
+                  
+                  <div className="bg-white/20 rounded-2xl p-6 mb-6 backdrop-blur-sm">
+                    <p className="text-6xl font-black mb-2">{result.message}</p>
+                    <p className="text-3xl font-bold opacity-90">{result.member.name}</p>
+                  </div>
 
-              {scanResult.endDate && (
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  {scanResult.subscriptionType && (
-                    <div className="bg-white bg-opacity-20 rounded-lg p-2">
-                      <p className="text-xs opacity-75 mb-1">نوع الاشتراك</p>
-                      <p className="text-sm font-bold">{scanResult.subscriptionType}</p>
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="bg-white/20 rounded-xl p-4 backdrop-blur-sm">
+                      <p className="text-sm opacity-75 mb-1">ID</p>
+                      <p className="text-2xl font-mono font-bold">
+                        {result.member.custom_id || result.member.id}
+                      </p>
+                    </div>
+                    <div className="bg-white/20 rounded-xl p-4 backdrop-blur-sm">
+                      <p className="text-sm opacity-75 mb-1">باقي</p>
+                      <p className="text-2xl font-bold">{result.daysLeft} يوم</p>
+                    </div>
+                  </div>
+
+                  {result.warning && (
+                    <div className="bg-red-600/30 border-2 border-red-400 rounded-xl p-4 mb-6">
+                      <p className="text-lg font-bold">⚠️ قريب الانتهاء!</p>
                     </div>
                   )}
-                  <div className="bg-white bg-opacity-20 rounded-lg p-2">
-                    <p className="text-xs opacity-75 mb-1">ينتهي في</p>
-                    <p className="text-sm font-bold">{scanResult.endDate}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Next Scan */}
-              <div className="mb-3">
-                <div className="bg-white bg-opacity-25 rounded-xl p-3 border-2 border-white border-opacity-40">
-                  <div className="flex items-center justify-center gap-2 mb-2">
-                    <span className="text-2xl">⚡</span>
-                    <p className="text-sm font-bold">ابدأ الكتابة مباشرة!</p>
-                  </div>
-                  <input
-                    ref={nextSearchInputRef}
-                    type="text"
-                    value={nextSearchValue}
-                    onChange={(e) => setNextSearchValue(e.target.value)}
-                    onKeyDown={handleNextKeyPress}
-                    placeholder="اكتب هنا فورًا..."
-                    disabled={isChecking}
-                    autoComplete="off"
-                    className="w-full px-4 py-3 bg-white text-gray-900 rounded-lg text-center font-bold text-lg focus:ring-4 focus:ring-white focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-500"
-                  />
-                  <p className="text-xs opacity-75 mt-2">💡 اضغط أي مفتاح للكتابة مباشرة</p>
                 </div>
               </div>
+            ) : result.found && !result.active ? (
+              <div className="bg-gradient-to-br from-red-600 to-red-700 p-8">
+                <div className="text-center text-white">
+                  <div className="text-8xl mb-6">❌</div>
+                  
+                  <div className="bg-white/20 rounded-2xl p-6 mb-6 backdrop-blur-sm">
+                    <p className="text-6xl font-black mb-2">{result.message}</p>
+                    <p className="text-3xl font-bold opacity-90">{result.member.name}</p>
+                  </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCloseModal}
-                  disabled={isChecking}
-                  className="flex-1 px-4 py-3 bg-white text-gray-800 rounded-lg font-bold hover:bg-gray-100 active:scale-95 transition-all text-base disabled:opacity-50"
-                >
-                  إغلاق
-                </button>
-                <button
-                  onClick={handleQuickNext}
-                  disabled={isChecking}
-                  className="flex-1 px-4 py-3 bg-white bg-opacity-25 hover:bg-opacity-35 active:scale-95 text-white rounded-lg font-bold transition-all text-base disabled:opacity-50 border-2 border-white border-opacity-40"
-                >
-                  {isChecking ? '⏳' : nextSearchValue.trim() ? '✓ تشيك' : '🔄 جديد'}
-                </button>
+                  <div className="bg-white/20 rounded-xl p-4 mb-6 backdrop-blur-sm">
+                    <p className="text-sm opacity-75 mb-1">انتهى منذ</p>
+                    <p className="text-3xl font-bold">{Math.abs(result.daysLeft)} يوم</p>
+                  </div>
+
+                  <div className="bg-white/30 border-2 border-white/50 rounded-xl p-4 mb-6">
+                    <p className="text-lg font-bold">⚠️ يحتاج تجديد!</p>
+                  </div>
+                </div>
               </div>
+            ) : (
+              <div className="bg-gradient-to-br from-gray-700 to-gray-800 p-8">
+                <div className="text-center text-white">
+                  <div className="text-8xl mb-6">🚫</div>
+                  
+                  <div className="bg-white/10 rounded-2xl p-6 mb-6">
+                    <p className="text-5xl font-black mb-2">{result.message}</p>
+                    <p className="text-xl opacity-75">ID: {result.id}</p>
+                  </div>
+
+                  <div className="bg-red-600/30 border-2 border-red-400 rounded-xl p-4 mb-6">
+                    <p className="text-lg">لم يتم العثور على هذا الرقم</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-6 bg-gray-900 flex gap-3">
+              <button
+                onClick={handleClose}
+                className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-bold py-4 rounded-xl transition-all"
+              >
+                إغلاق
+              </button>
+              <button
+                onClick={handleNewSearch}
+                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 rounded-xl transition-all"
+              >
+                🔄 تشيك جديد
+              </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        
-        @keyframes slideUp {
-          from { 
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to { 
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.15s ease-out;
-        }
-        
-        .animate-slideUp {
-          animation: slideUp 0.2s ease-out;
-        }
-        
-        @keyframes bounce {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.1); }
-        }
-        
-        .animate-bounce {
-          animation: bounce 0.5s ease-in-out;
-        }
-      `}</style>
-    </>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

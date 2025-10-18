@@ -1,7 +1,3 @@
-// ═══════════════════════════════════════════════════════════
-// main.js - Electron Main Process - FIXED
-// ✅ حل مشكلة الـ Focus بعد Add/Delete
-// ═══════════════════════════════════════════════════════════
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -329,6 +325,28 @@ class DatabaseManager {
     }
   }
 
+  updatePTSession(id, completedSessions) {
+    try {
+      const client = this.db.prepare('SELECT * FROM pt_clients WHERE id = ?').get(id);
+      if (!client) {
+        return { success: false, error: 'Client not found' };
+      }
+      
+      const remainingSessions = client.total_sessions - completedSessions;
+      
+      this.db.prepare(`
+        UPDATE pt_clients 
+        SET completed_sessions = ?, remaining_sessions = ? 
+        WHERE id = ?
+      `).run(completedSessions, remainingSessions, id);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating PT session:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   // ═══ INBODY SERVICES ═══
   getAllInBodyServices() {
     try {
@@ -448,7 +466,7 @@ class DatabaseManager {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🪟 CREATE WINDOW
+// 🪟 CREATE WINDOW WITH ENHANCED FOCUS MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
 function createWindow() {
@@ -459,147 +477,241 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
-    }
+    },
+    // Window settings for better focus
+    show: false,
+    backgroundColor: '#0a0a0a',
+    titleBarStyle: 'default',
+    frame: true,
+    resizable: true,
+    center: true,
+    focusable: true,
+    alwaysOnTop: false
   });
-
-  const startURL = isDev ? 'http://localhost:4001' : `file://${path.join(__dirname, 'out/index.html')}`;
-  mainWindow.loadURL(startURL);
+const startURL = isDev
+  ? 'http://localhost:4001'
+  : `file://${path.join(__dirname, '../renderer/out/index.html')}`;
+  // Load URL and show when ready
+  mainWindow.loadURL(startURL).then(() => {
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
   if (isDev) mainWindow.webContents.openDevTools();
 
-  // ✅ FIX: Prevent focus issues after operations
+  // ═══════════════════════════════════════════════════════════
+  // ✅ ENHANCED FOCUS MANAGEMENT
+  // ═══════════════════════════════════════════════════════════
+  
+  // Restore focus on window activation
   mainWindow.on('focus', () => {
-    console.log('Window focused');
+    console.log('✅ Window focused');
+    
+    // Send focus event to renderer
+    mainWindow.webContents.send('window-focused');
+    
+    // Execute JavaScript to ensure focus
+    mainWindow.webContents.executeJavaScript(`
+      // Enable all inputs
+      document.body.style.pointerEvents = 'auto';
+      document.body.style.userSelect = 'auto';
+      
+      // Find and focus first available input
+      const inputs = document.querySelectorAll('input:not([disabled]), textarea:not([disabled])');
+      if (inputs.length > 0) {
+        inputs[0].focus();
+      }
+    `).catch(console.error);
   });
 
   mainWindow.on('blur', () => {
     console.log('Window blurred');
   });
+
+  // Handle window ready
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('✅ Page loaded - ensuring focus');
+    
+    // Inject focus management script
+    mainWindow.webContents.executeJavaScript(`
+      // Global focus fix
+      window.addEventListener('load', () => {
+        document.body.style.pointerEvents = 'auto';
+        document.body.style.userSelect = 'auto';
+      });
+      
+      // Monitor for stuck states
+      setInterval(() => {
+        if (document.body.style.pointerEvents === 'none') {
+          document.body.style.pointerEvents = 'auto';
+        }
+      }, 1000);
+    `).catch(console.error);
+  });
+
+  // Prevent window hang
+  mainWindow.on('unresponsive', () => {
+    console.warn('⚠️ Window unresponsive - attempting recovery');
+    mainWindow.reload();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📡 IPC HANDLERS - WITH PROPER ASYNC/AWAIT
+// 📡 IPC HANDLERS - WITH ENHANCED WRAPPER
 // ═══════════════════════════════════════════════════════════
 
-// ✅ WRAPPER to prevent focus issues
-function createSafeHandler(handler) {
+// Enhanced wrapper with focus recovery
+function createSafeHandler(handlerName, handler) {
   return async (event, ...args) => {
+    console.log(`📡 Handling: ${handlerName}`);
+    
     try {
       const result = await handler(...args);
       
-      // ✅ FIX: Ensure window stays focused after operation
+      // ✅ ENHANCED: Force focus recovery after operation
       if (mainWindow && !mainWindow.isDestroyed()) {
-        setImmediate(() => {
-          if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocusable()) {
+        // Use multiple methods to ensure focus
+        process.nextTick(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.focus();
+            
+            // Also send JavaScript to ensure page is interactive
+            mainWindow.webContents.executeJavaScript(`
+              document.body.style.pointerEvents = 'auto';
+              document.body.style.userSelect = 'auto';
+              
+              // Remove any stuck modals
+              document.querySelectorAll('.fixed.inset-0').forEach(el => {
+                if (!el.querySelector('input, button, textarea')) {
+                  el.remove();
+                }
+              });
+              
+              // Restore focus to first input if available
+              setTimeout(() => {
+                const input = document.querySelector('input:not([disabled]), textarea:not([disabled])');
+                if (input) input.focus();
+              }, 100);
+            `).catch(() => {});
           }
         });
       }
       
       return result;
     } catch (error) {
-      console.error('Handler error:', error);
+      console.error(`❌ Error in ${handlerName}:`, error);
       return { success: false, error: error.message };
     }
   };
 }
 
-// MEMBERS
-ipcMain.handle('get-members', createSafeHandler(async () => {
-  const data = dbManager.getAllMembers();
-  return { success: true, data };
-}));
+// Register all IPC handlers with enhanced wrapper
+function registerIPCHandlers() {
+  // MEMBERS
+  ipcMain.handle('get-members', createSafeHandler('get-members', async () => {
+    const data = dbManager.getAllMembers();
+    return { success: true, data };
+  }));
 
-ipcMain.handle('add-member', createSafeHandler(async (data) => {
-  return dbManager.addMember(data);
-}));
+  ipcMain.handle('add-member', createSafeHandler('add-member', async (event, data) => {
+    return dbManager.addMember(data);
+  }));
 
-ipcMain.handle('update-member', createSafeHandler(async (id, data) => {
-  return dbManager.updateMember(id, data);
-}));
+  ipcMain.handle('update-member', createSafeHandler('update-member', async (event, id, data) => {
+    return dbManager.updateMember(id, data);
+  }));
 
-ipcMain.handle('delete-member', createSafeHandler(async (id) => {
-  return dbManager.deleteMember(id);
-}));
+  ipcMain.handle('delete-member', createSafeHandler('delete-member', async (event, id) => {
+    return dbManager.deleteMember(id);
+  }));
 
-ipcMain.handle('get-highest-custom-id', createSafeHandler(async () => {
-  return dbManager.getHighestCustomId();
-}));
+  ipcMain.handle('get-highest-custom-id', createSafeHandler('get-highest-custom-id', async () => {
+    return dbManager.getHighestCustomId();
+  }));
 
-// VISITORS
-ipcMain.handle('get-visitors', createSafeHandler(async () => {
-  const data = dbManager.getAllVisitors();
-  return { success: true, data };
-}));
+  // VISITORS
+  ipcMain.handle('get-visitors', createSafeHandler('get-visitors', async () => {
+    const data = dbManager.getAllVisitors();
+    return { success: true, data };
+  }));
 
-ipcMain.handle('add-visitor', createSafeHandler(async (data) => {
-  return dbManager.addVisitor(data);
-}));
+  ipcMain.handle('add-visitor', createSafeHandler('add-visitor', async (event, data) => {
+    return dbManager.addVisitor(data);
+  }));
 
-ipcMain.handle('delete-visitor', createSafeHandler(async (id) => {
-  return dbManager.deleteVisitor(id);
-}));
+  ipcMain.handle('delete-visitor', createSafeHandler('delete-visitor', async (event, id) => {
+    return dbManager.deleteVisitor(id);
+  }));
 
-// PT CLIENTS
-ipcMain.handle('get-pt-clients', createSafeHandler(async () => {
-  const data = dbManager.getAllPTClients();
-  return { success: true, data };
-}));
+  // PT CLIENTS
+  ipcMain.handle('get-pt-clients', createSafeHandler('get-pt-clients', async () => {
+    const data = dbManager.getAllPTClients();
+    return { success: true, data };
+  }));
 
-ipcMain.handle('add-pt-client', createSafeHandler(async (data) => {
-  return dbManager.addPTClient(data);
-}));
+  ipcMain.handle('add-pt-client', createSafeHandler('add-pt-client', async (event, data) => {
+    return dbManager.addPTClient(data);
+  }));
 
-ipcMain.handle('update-pt-client', createSafeHandler(async (id, data) => {
-  return dbManager.updatePTClient(id, data);
-}));
+  ipcMain.handle('update-pt-client', createSafeHandler('update-pt-client', async (event, id, data) => {
+    return dbManager.updatePTClient(id, data);
+  }));
 
-ipcMain.handle('delete-pt-client', createSafeHandler(async (id) => {
-  return dbManager.deletePTClient(id);
-}));
+  ipcMain.handle('delete-pt-client', createSafeHandler('delete-pt-client', async (event, id) => {
+    return dbManager.deletePTClient(id);
+  }));
 
-ipcMain.handle('get-highest-pt-custom-id', createSafeHandler(async () => {
-  return dbManager.getHighestPTCustomId();
-}));
+  ipcMain.handle('update-pt-session', createSafeHandler('update-pt-session', async (event, id, completedSessions) => {
+    return dbManager.updatePTSession(id, completedSessions);
+  }));
 
-// INBODY SERVICES
-ipcMain.handle('get-inbody-services', createSafeHandler(async () => {
-  const data = dbManager.getAllInBodyServices();
-  return { success: true, data };
-}));
+  ipcMain.handle('get-highest-pt-custom-id', createSafeHandler('get-highest-pt-custom-id', async () => {
+    return dbManager.getHighestPTCustomId();
+  }));
 
-ipcMain.handle('add-inbody-service', createSafeHandler(async (data) => {
-  return dbManager.addInBodyService(data);
-}));
+  // INBODY SERVICES
+  ipcMain.handle('get-inbody-services', createSafeHandler('get-inbody-services', async () => {
+    const data = dbManager.getAllInBodyServices();
+    return { success: true, data };
+  }));
 
-ipcMain.handle('delete-inbody-service', createSafeHandler(async (id) => {
-  return dbManager.deleteInBodyService(id);
-}));
+  ipcMain.handle('add-inbody-service', createSafeHandler('add-inbody-service', async (event, data) => {
+    return dbManager.addInBodyService(data);
+  }));
 
-// DAY USE SERVICES
-ipcMain.handle('get-dayuse-services', createSafeHandler(async () => {
-  const data = dbManager.getAllDayUseServices();
-  return { success: true, data };
-}));
+  ipcMain.handle('delete-inbody-service', createSafeHandler('delete-inbody-service', async (event, id) => {
+    return dbManager.deleteInBodyService(id);
+  }));
 
-ipcMain.handle('add-dayuse-service', createSafeHandler(async (data) => {
-  return dbManager.addDayUseService(data);
-}));
+  // DAY USE SERVICES
+  ipcMain.handle('get-dayuse-services', createSafeHandler('get-dayuse-services', async () => {
+    const data = dbManager.getAllDayUseServices();
+    return { success: true, data };
+  }));
 
-ipcMain.handle('delete-dayuse-service', createSafeHandler(async (id) => {
-  return dbManager.deleteDayUseService(id);
-}));
+  ipcMain.handle('add-dayuse-service', createSafeHandler('add-dayuse-service', async (event, data) => {
+    return dbManager.addDayUseService(data);
+  }));
 
-// STATISTICS
-ipcMain.handle('get-statistics', createSafeHandler(async () => {
-  const data = dbManager.getStatistics();
-  return { success: true, data };
-}));
+  ipcMain.handle('delete-dayuse-service', createSafeHandler('delete-dayuse-service', async (event, id) => {
+    return dbManager.deleteDayUseService(id);
+  }));
 
-ipcMain.handle('get-other-services-statistics', createSafeHandler(async () => {
-  const data = dbManager.getOtherServicesStatistics();
-  return { success: true, data };
-}));
+  // STATISTICS
+  ipcMain.handle('get-statistics', createSafeHandler('get-statistics', async () => {
+    const data = dbManager.getStatistics();
+    return { success: true, data };
+  }));
+
+  ipcMain.handle('get-other-services-statistics', createSafeHandler('get-other-services-statistics', async () => {
+    const data = dbManager.getOtherServicesStatistics();
+    return { success: true, data };
+  }));
+}
 
 // ═══════════════════════════════════════════════════════════
 // 🚀 APP LIFECYCLE
@@ -609,6 +721,7 @@ app.on('ready', () => {
   console.log('🚀 App is ready');
   db = initializeDatabase();
   dbManager = new DatabaseManager(db);
+  registerIPCHandlers();
   createWindow();
 });
 

@@ -1,46 +1,42 @@
-// ═══════════════════════════════════════════════════════════
-// 2️⃣ src/app/members/page.js - COMPLETE WITH CLEANUP
-// ═══════════════════════════════════════════════════════════
-
 "use client";
 import { useState, useCallback, useMemo } from 'react';
 import { useMembers, LoadingSpinner } from '../../hooks/optimizedHooks';
+import cleanupManager, { useCleanup } from '../../utils/cleanupManager';
 
-// ✅ CLEANUP FUNCTION
-function cleanupAfterOperation() {
-  document.querySelectorAll('[class*="fixed"][class*="inset-0"]').forEach(el => {
-    if (!el.closest('[data-permanent]') && !el.querySelector('aside, nav')) {
-      el.remove();
-    }
-  });
-  document.body.style.pointerEvents = 'auto';
-  document.body.style.overflow = 'auto';
-  document.querySelectorAll('*').forEach(el => {
-    if (el.style.pointerEvents === 'none' && !el.hasAttribute('disabled')) {
-      el.style.pointerEvents = 'auto';
-    }
-  });
-  document.body.focus();
-  setTimeout(() => document.body.blur(), 100);
-}
+// ═══════════════════════════════════════════════════════════
+// 📝 DETAILS MODAL COMPONENT
+// ═══════════════════════════════════════════════════════════
 
-// Details Modal
 function DetailsModal({ member, onClose, onEdit }) {
+  const { cleanup } = useCleanup();
+  
+  const handleClose = () => {
+    cleanup();
+    onClose();
+  };
+  
   const endDate = member.subscription_end || member.subscriptionEnd;
   const isExpired = new Date(endDate) < new Date();
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
       <div className="bg-gray-800 rounded-xl p-8 max-w-2xl w-full border border-gray-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold text-white">📋 تفاصيل العضو</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+          <button onClick={handleClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
         </div>
+        
         <div className="space-y-4">
           <div className="bg-gray-700 rounded-lg p-4">
             <p className="text-gray-400 text-sm mb-1">الاسم</p>
             <p className="text-white text-xl font-bold">{member.name}</p>
           </div>
+          
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-700 rounded-lg p-4">
               <p className="text-gray-400 text-sm mb-1">ID</p>
@@ -51,20 +47,7 @@ function DetailsModal({ member, onClose, onEdit }) {
               <p className="text-white text-lg font-bold">{member.phone}</p>
             </div>
           </div>
-          <div className="bg-gray-700 rounded-lg p-4">
-            <p className="text-gray-400 text-sm mb-1">نوع الاشتراك</p>
-            <p className="text-white text-lg font-bold">{member.subscription_type || member.subscriptionType}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-700 rounded-lg p-4">
-              <p className="text-gray-400 text-sm mb-1">بداية الاشتراك</p>
-              <p className="text-white text-lg">{member.subscription_start || member.subscriptionStart}</p>
-            </div>
-            <div className="bg-gray-700 rounded-lg p-4">
-              <p className="text-gray-400 text-sm mb-1">نهاية الاشتراك</p>
-              <p className="text-white text-lg">{endDate}</p>
-            </div>
-          </div>
+          
           <div className="bg-gray-700 rounded-lg p-4">
             <p className="text-gray-400 text-sm mb-1">الحالة</p>
             {isExpired ? (
@@ -73,18 +56,7 @@ function DetailsModal({ member, onClose, onEdit }) {
               <span className="bg-green-900/50 text-green-400 px-4 py-2 rounded-full text-lg font-bold inline-block">نشط ✅</span>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-700 rounded-lg p-4">
-              <p className="text-gray-400 text-sm mb-1">الإجمالي</p>
-              <p className="text-white text-lg font-bold">{member.total_amount || 0} ج.م</p>
-            </div>
-            <div className="bg-gray-700 rounded-lg p-4">
-              <p className="text-gray-400 text-sm mb-1">المتبقي</p>
-              <p className={`text-lg font-bold ${(member.remaining_amount || member.remainingAmount || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                {member.remaining_amount || member.remainingAmount || 0} ج.م
-              </p>
-            </div>
-          </div>
+          
           {member.notes && (
             <div className="bg-gray-700 rounded-lg p-4">
               <p className="text-gray-400 text-sm mb-1">ملاحظات</p>
@@ -92,11 +64,12 @@ function DetailsModal({ member, onClose, onEdit }) {
             </div>
           )}
         </div>
+        
         <div className="flex gap-3 mt-6">
           <button onClick={onEdit} className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 rounded-lg transition">
             ✏️ تعديل
           </button>
-          <button onClick={onClose} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition">
+          <button onClick={handleClose} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition">
             إغلاق
           </button>
         </div>
@@ -105,8 +78,12 @@ function DetailsModal({ member, onClose, onEdit }) {
   );
 }
 
-// Edit Modal
+// ═══════════════════════════════════════════════════════════
+// ✏️ EDIT MODAL COMPONENT
+// ═══════════════════════════════════════════════════════════
+
 function EditModal({ member, onClose, onSave }) {
+  const { cleanup, wrapHandler } = useCleanup();
   const [formData, setFormData] = useState({
     name: member.name || '',
     phone: member.phone || '',
@@ -132,75 +109,73 @@ function EditModal({ member, onClose, onSave }) {
     });
   }, []);
 
-  const handleSubmit = () => {
+  const handleSubmit = wrapHandler(async () => {
     if (!formData.name || !formData.phone || !formData.subscription_type) {
       alert('⚠️ برجاء ملء جميع الحقول المطلوبة');
-      cleanupAfterOperation(); // ✅
       return;
     }
-    onSave(formData);
+    await onSave(formData);
+    cleanup();
+  });
+  
+  const handleClose = () => {
+    cleanup();
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
       <div className="bg-gray-800 rounded-xl p-8 max-w-2xl w-full border border-gray-700 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold text-white">✏️ تعديل بيانات العضو</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+          <button onClick={handleClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
         </div>
+        
         <div className="space-y-4">
           <div>
             <label className="text-gray-300 block mb-2">الاسم</label>
-            <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            <input 
+              type="text" 
+              name="name" 
+              value={formData.name} 
+              onChange={handleChange} 
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+            />
           </div>
+          
           <div>
             <label className="text-gray-300 block mb-2">التليفون</label>
-            <input type="text" name="phone" value={formData.phone} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            <input 
+              type="text" 
+              name="phone" 
+              value={formData.phone} 
+              onChange={handleChange} 
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+            />
           </div>
-          <div>
-            <label className="text-gray-300 block mb-2">نوع الاشتراك</label>
-            <select name="subscription_type" value={formData.subscription_type} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
-              <option value="">اختر نوع الاشتراك</option>
-              <option value="شهري">شهري</option>
-              <option value="3شهور">3 شهور</option>
-              <option value="6شهور">6 شهور</option>
-              <option value="سنوي">سنوي</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-gray-300 block mb-2">بداية الاشتراك</label>
-              <input type="date" name="subscription_start" value={formData.subscription_start} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-gray-300 block mb-2">نهاية الاشتراك</label>
-              <input type="date" name="subscription_end" value={formData.subscription_end} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="text-gray-300 block mb-2">الإجمالي</label>
-              <input type="number" name="total_amount" value={formData.total_amount} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-gray-300 block mb-2">المدفوع</label>
-              <input type="number" name="paid_amount" value={formData.paid_amount} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-            </div>
-            <div>
-              <label className="text-gray-300 block mb-2">المتبقي</label>
-              <input type="number" name="remaining_amount" value={formData.remaining_amount} readOnly className={`w-full px-4 py-3 border border-gray-600 rounded-lg cursor-not-allowed ${formData.remaining_amount > 0 ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'}`} />
-            </div>
-          </div>
+          
           <div>
             <label className="text-gray-300 block mb-2">ملاحظات</label>
-            <textarea name="notes" value={formData.notes} onChange={handleChange} rows="3" className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" />
+            <textarea 
+              name="notes" 
+              value={formData.notes} 
+              onChange={handleChange} 
+              rows="3" 
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" 
+            />
           </div>
         </div>
+        
         <div className="flex gap-3 pt-4">
           <button onClick={handleSubmit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">
             💾 حفظ التعديلات
           </button>
-          <button onClick={onClose} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition">
+          <button onClick={handleClose} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition">
             إلغاء
           </button>
         </div>
@@ -209,8 +184,13 @@ function EditModal({ member, onClose, onSave }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🎯 MAIN MEMBERS COMPONENT
+// ═══════════════════════════════════════════════════════════
+
 export default function MembersManagement() {
   const { members, loading, updateMember, deleteMember } = useMembers();
+  const { cleanup, safeOperation, wrapHandler } = useCleanup();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -249,45 +229,42 @@ export default function MembersManagement() {
   const handleEdit = useCallback((member) => {
     setSelectedMember(member);
     setShowEditModal(true);
+    setShowDetailsModal(false);
   }, []);
 
-  const handleDelete = useCallback(async (memberId) => {
-    if (confirm('هل أنت متأكد من حذف هذا العضو؟')) {
+  const handleDelete = wrapHandler(async (memberId) => {
+    const confirmed = await safeOperation(() => 
+      confirm('هل أنت متأكد من حذف هذا العضو؟')
+    );
+    
+    if (confirmed) {
       try {
         const result = await deleteMember(memberId);
         if (result.success) {
-          alert('✅ تم حذف العضو بنجاح');
-          cleanupAfterOperation(); // ✅
+          await safeOperation(() => alert('✅ تم حذف العضو بنجاح'));
         } else {
-          alert('❌ خطأ: ' + result.error);
-          cleanupAfterOperation(); // ✅
+          await safeOperation(() => alert('❌ خطأ: ' + result.error));
         }
       } catch (error) {
-        alert('❌ خطأ: ' + error.message);
-        cleanupAfterOperation(); // ✅
+        await safeOperation(() => alert('❌ خطأ: ' + error.message));
       }
-    } else {
-      cleanupAfterOperation(); // ✅ حتى لو ألغى
     }
-  }, [deleteMember]);
+  });
 
-  const handleSaveEdit = useCallback(async (formData) => {
+  const handleSaveEdit = wrapHandler(async (formData) => {
     try {
       const result = await updateMember(selectedMember.id, formData);
       if (result.success) {
-        alert('✅ تم تحديث البيانات بنجاح');
-        cleanupAfterOperation(); // ✅
+        await safeOperation(() => alert('✅ تم تحديث البيانات بنجاح'));
         setShowEditModal(false);
         setSelectedMember(null);
       } else {
-        alert('❌ خطأ: ' + result.error);
-        cleanupAfterOperation(); // ✅
+        await safeOperation(() => alert('❌ خطأ: ' + result.error));
       }
     } catch (error) {
-      alert('❌ خطأ: ' + error.message);
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('❌ خطأ: ' + error.message));
     }
-  }, [selectedMember, updateMember]);
+  });
 
   if (loading) {
     return (
@@ -396,7 +373,7 @@ export default function MembersManagement() {
             member={selectedMember}
             onClose={() => {
               setShowDetailsModal(false);
-              cleanupAfterOperation(); // ✅
+              cleanup();
             }}
             onEdit={() => {
               setShowDetailsModal(false);
@@ -410,7 +387,7 @@ export default function MembersManagement() {
             member={selectedMember}
             onClose={() => {
               setShowEditModal(false);
-              cleanupAfterOperation(); // ✅
+              cleanup();
             }}
             onSave={handleSaveEdit}
           />

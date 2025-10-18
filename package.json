@@ -1,17 +1,23 @@
 {
   "name": "gym-management-system",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "postinstall": "electron-rebuild",
-    "dev": "next dev",
+    "dev": "next dev -p 4001",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "electron": "electron .",
-    "electron-dev": "concurrently \"npm run dev -- -p 4001\" \"wait-on http://localhost:4001 && electron .\"",
-    "dist": "next build && electron-builder",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:4001 && electron .\"",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "clean": "rm -rf .next out dist node_modules/.cache",
+    "clean:all": "rm -rf .next out dist node_modules package-lock.json && npm install",
+    "test:db": "node scripts/test-database.js",
+    "backup:db": "node scripts/backup-database.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",
@@ -43,6 +49,7 @@
       "out/**/*",
       "main.js",
       "preload.js",
+      "src/utils/**/*",
       "node_modules/**/*"
     ],
     "directories": {
@@ -51,6 +58,14 @@
     "win": {
       "target": "nsis",
       "icon": "public/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/icon.png"
     }
   }
 }

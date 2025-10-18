@@ -1,29 +1,12 @@
-
 "use client";
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { compressImage } from '../../hooks/optimizedHooks';
-
-// ✅ CLEANUP FUNCTION
-function cleanupAfterOperation() {
-  document.querySelectorAll('[class*="fixed"][class*="inset-0"]').forEach(el => {
-    if (!el.closest('[data-permanent]') && !el.querySelector('aside, nav')) {
-      el.remove();
-    }
-  });
-  document.body.style.pointerEvents = 'auto';
-  document.body.style.overflow = 'auto';
-  document.querySelectorAll('*').forEach(el => {
-    if (el.style.pointerEvents === 'none' && !el.hasAttribute('disabled')) {
-      el.style.pointerEvents = 'auto';
-    }
-  });
-  document.body.focus();
-  setTimeout(() => document.body.blur(), 100);
-}
+import cleanupManager, { useCleanup } from '../../utils/cleanupManager';
 
 export default function AddMemberPage() {
   const router = useRouter();
+  const { cleanup, safeOperation, wrapHandler } = useCleanup();
 
   const [formData, setFormData] = useState({
     custom_id: '',
@@ -62,6 +45,7 @@ export default function AddMemberPage() {
     } catch { return ''; }
   }, []);
 
+  // Load next ID on mount
   useEffect(() => {
     const loadNextId = async () => {
       setIsLoadingNextId(true);
@@ -83,6 +67,7 @@ export default function AddMemberPage() {
     loadNextId();
   }, []);
 
+  // Calculate end date when start date or type changes
   useEffect(() => {
     if (formData.subscriptionStart) {
       const endDate = calculateEndDate(formData.subscriptionStart, formData.subscriptionType);
@@ -103,19 +88,20 @@ export default function AddMemberPage() {
     });
   }, []);
 
-  const handlePhotoChange = useCallback(async (e) => {
+  const handlePhotoChange = wrapHandler(async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
     if (!file.type.startsWith('image/')) {
-      alert('⚠️ من فضلك اختر صورة فقط');
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('⚠️ من فضلك اختر صورة فقط'));
       return;
     }
+    
     if (file.size > 5 * 1024 * 1024) {
-      alert('⚠️ حجم الصورة كبير جداً');
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('⚠️ حجم الصورة كبير جداً'));
       return;
     }
+    
     try {
       setIsCompressingImage(true);
       const compressedFile = await compressImage(file, 800, 0.8);
@@ -124,24 +110,22 @@ export default function AddMemberPage() {
       reader.onloadend = () => setPhotoPreview(reader.result);
       reader.readAsDataURL(compressedFile);
     } catch {
-      alert('❌ خطأ في معالجة الصورة');
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('❌ خطأ في معالجة الصورة'));
     } finally {
       setIsCompressingImage(false);
     }
-  }, []);
+  });
 
-  const handleSubmit = useCallback(async (e) => {
+  const handleSubmit = wrapHandler(async (e) => {
     e?.preventDefault();
     
     if (!formData.name || !formData.phone || !formData.subscriptionStart) {
-      alert('⚠️ من فضلك أكمل البيانات المطلوبة');
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('⚠️ من فضلك أكمل البيانات المطلوبة'));
       return;
     }
+    
     if (formData.phone.length < 11) {
-      alert('⚠️ رقم التليفون غير صحيح');
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('⚠️ رقم التليفون غير صحيح'));
       return;
     }
 
@@ -175,31 +159,41 @@ export default function AddMemberPage() {
       if (window.electronAPI) {
         const result = await window.electronAPI.addMember(memberData);
         if (result.success) {
-          alert('✅ تم تسجيل العضو بنجاح!\n\nرقم العضو: ' + (formData.custom_id || result.id));
-          cleanupAfterOperation(); // ✅
-          setTimeout(() => router.push('/members'), 150);
+          await safeOperation(() => 
+            alert('✅ تم تسجيل العضو بنجاح!\n\nرقم العضو: ' + (formData.custom_id || result.id))
+          );
+          
+          // Navigate after cleanup
+          setTimeout(() => {
+            cleanup();
+            router.push('/members');
+          }, 200);
         } else {
-          alert('❌ خطأ في التسجيل: ' + result.error);
-          cleanupAfterOperation(); // ✅
+          await safeOperation(() => alert('❌ خطأ في التسجيل: ' + result.error));
         }
       } else {
-        alert('✅ تم تسجيل العضو بنجاح!');
-        cleanupAfterOperation(); // ✅
-        setTimeout(() => router.push('/members'), 150);
+        await safeOperation(() => alert('✅ تم تسجيل العضو بنجاح!'));
+        setTimeout(() => {
+          cleanup();
+          router.push('/members');
+        }, 200);
       }
     } catch (error) {
-      alert('❌ حدث خطأ: ' + error.message);
-      cleanupAfterOperation(); // ✅
+      await safeOperation(() => alert('❌ حدث خطأ: ' + error.message));
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, router]);
+  });
 
-  const handleReset = useCallback(() => {
-    if (confirm('هل تريد مسح جميع البيانات المدخلة؟')) {
+  const handleReset = wrapHandler(async () => {
+    const confirmed = await safeOperation(() => 
+      confirm('هل تريد مسح جميع البيانات المدخلة؟')
+    );
+    
+    if (confirmed) {
       const today = new Date().toISOString().split('T')[0];
       setFormData({
-        custom_id: '',
+        custom_id: formData.custom_id, // Keep the ID
         name: '',
         phone: '',
         photo: null,
@@ -213,11 +207,13 @@ export default function AddMemberPage() {
         notes: ''
       });
       setPhotoPreview(null);
-      cleanupAfterOperation(); // ✅
-    } else {
-      cleanupAfterOperation(); // ✅ حتى لو ألغى
     }
-  }, [calculateEndDate]);
+  });
+
+  const handleCancel = () => {
+    cleanup();
+    router.push('/members');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-8">
@@ -229,6 +225,7 @@ export default function AddMemberPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Photo Upload */}
             <div className="flex flex-col items-center mb-8">
               <div className="w-32 h-32 rounded-full bg-gray-700 border-4 border-blue-500 overflow-hidden mb-4 shadow-lg relative">
                 {isCompressingImage && (
@@ -248,6 +245,7 @@ export default function AddMemberPage() {
               </label>
             </div>
 
+            {/* Custom ID */}
             <div className="bg-blue-900/20 border-2 border-blue-500 rounded-xl p-4">
               <label className="block text-blue-300 mb-2 font-bold">رقم ID العضو</label>
               <input
@@ -261,74 +259,165 @@ export default function AddMemberPage() {
               />
             </div>
 
+            {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-gray-300 mb-2 font-semibold">الاسم *</label>
-                <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="أحمد محمد" required />
+                <input 
+                  type="text" 
+                  name="name" 
+                  value={formData.name} 
+                  onChange={handleChange} 
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  placeholder="أحمد محمد" 
+                  required 
+                />
               </div>
               <div>
                 <label className="block text-gray-300 mb-2 font-semibold">التليفون *</label>
-                <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="01xxxxxxxxx" maxLength="11" required />
+                <input 
+                  type="tel" 
+                  name="phone" 
+                  value={formData.phone} 
+                  onChange={handleChange} 
+                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  placeholder="01xxxxxxxxx" 
+                  maxLength="11" 
+                  required 
+                />
               </div>
             </div>
 
+            {/* Subscription Details */}
             <div className="bg-gray-750 p-6 rounded-xl border border-gray-600">
               <h3 className="text-xl font-bold text-white mb-4">📋 الاشتراك</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-gray-300 mb-2">نوع الاشتراك</label>
-                  <select name="subscriptionType" value={formData.subscriptionType} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                  <select 
+                    name="subscriptionType" 
+                    value={formData.subscriptionType} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
                     <option value="شهري">شهري</option>
                     <option value="3شهور">3 شهور</option>
                     <option value="6شهور">6 شهور</option>
                     <option value="سنوي">سنوي</option>
                   </select>
                 </div>
+                
                 <div>
                   <label className="block text-gray-300 mb-2">نوع الدفع</label>
-                  <select name="paymentType" value={formData.paymentType} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                  <select 
+                    name="paymentType" 
+                    value={formData.paymentType} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
                     <option value="كاش">💵 كاش</option>
                     <option value="فيزا">💳 فيزا</option>
                     <option value="انستباي">📱 انستباي</option>
                     <option value="تحويل بنكي">🏦 تحويل بنكي</option>
                   </select>
                 </div>
+                
                 <div>
                   <label className="block text-gray-300 mb-2">تاريخ البداية *</label>
-                  <input type="date" name="subscriptionStart" value={formData.subscriptionStart} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" required />
+                  <input 
+                    type="date" 
+                    name="subscriptionStart" 
+                    value={formData.subscriptionStart} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                    required 
+                  />
                 </div>
+                
                 <div>
                   <label className="block text-gray-300 mb-2">تاريخ النهاية</label>
-                  <input type="date" name="subscriptionEnd" value={formData.subscriptionEnd} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  <input 
+                    type="date" 
+                    name="subscriptionEnd" 
+                    value={formData.subscriptionEnd} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  />
                 </div>
+                
                 <div>
                   <label className="block text-gray-300 mb-2">إجمالي المبلغ</label>
-                  <input type="number" name="totalAmount" value={formData.totalAmount} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  <input 
+                    type="number" 
+                    name="totalAmount" 
+                    value={formData.totalAmount} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  />
                 </div>
+                
                 <div>
                   <label className="block text-gray-300 mb-2">المبلغ المدفوع</label>
-                  <input type="number" name="paidAmount" value={formData.paidAmount} onChange={handleChange} className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  <input 
+                    type="number" 
+                    name="paidAmount" 
+                    value={formData.paidAmount} 
+                    onChange={handleChange} 
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  />
                 </div>
+                
                 <div className="md:col-span-2">
                   <label className="block text-gray-300 mb-2">المتبقي (تلقائي)</label>
-                  <input type="number" value={formData.remainingAmount} readOnly className={`w-full px-4 py-3 border rounded-lg cursor-not-allowed font-bold ${formData.remainingAmount > 0 ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'}`} />
+                  <input 
+                    type="number" 
+                    value={formData.remainingAmount} 
+                    readOnly 
+                    className={`w-full px-4 py-3 border rounded-lg cursor-not-allowed font-bold ${
+                      formData.remainingAmount > 0 ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'
+                    }`} 
+                  />
                 </div>
               </div>
             </div>
 
+            {/* Notes */}
             <div>
               <label className="block text-gray-300 mb-2">ملاحظات</label>
-              <textarea name="notes" value={formData.notes} onChange={handleChange} rows="4" className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" />
+              <textarea 
+                name="notes" 
+                value={formData.notes} 
+                onChange={handleChange} 
+                rows="4" 
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none" 
+              />
             </div>
 
+            {/* Action Buttons */}
             <div className="flex gap-4">
-              <button type="submit" disabled={isSubmitting || isCompressingImage} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 rounded-lg transition disabled:opacity-50">
+              <button 
+                type="submit" 
+                disabled={isSubmitting || isCompressingImage} 
+                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-bold py-4 rounded-lg transition disabled:opacity-50"
+              >
                 {isSubmitting ? '⏳ جاري...' : '✅ حفظ'}
               </button>
-              <button type="button" onClick={handleReset} disabled={isSubmitting} className="px-6 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition">
+              
+              <button 
+                type="button" 
+                onClick={handleReset} 
+                disabled={isSubmitting} 
+                className="px-6 py-4 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition"
+              >
                 🔄 مسح
               </button>
-              <button type="button" onClick={() => router.push('/members')} disabled={isSubmitting} className="px-6 py-4 bg-red-700 hover:bg-red-600 text-white font-bold rounded-lg transition">
+              
+              <button 
+                type="button" 
+                onClick={handleCancel} 
+                disabled={isSubmitting} 
+                className="px-6 py-4 bg-red-700 hover:bg-red-600 text-white font-bold rounded-lg transition"
+              >
                 ❌ إلغاء
               </button>
             </div>

@@ -1,97 +1,120 @@
-
 "use client";
 import { useEffect } from 'react';
 import './globals.css';
+import cleanupManager from '../utils/cleanupManager';
 
 export default function RootLayout({ children }) {
   
-  // ✅ CRITICAL FIX: Clean everything after any operation
+  // ═══════════════════════════════════════════════════════════
+  // 🚀 INITIALIZE CLEANUP MANAGER ON MOUNT
+  // ═══════════════════════════════════════════════════════════
+  
   useEffect(() => {
-    // Override alert to clean up after
-    const originalAlert = window.alert;
-    window.alert = function(...args) {
-      const result = originalAlert.apply(this, args);
-      
-      // Immediate cleanup
+    // Initialize the cleanup manager
+    cleanupManager.initialize();
+    
+    // Do immediate cleanup on mount
+    cleanupManager.immediateCleanup();
+    
+    // Global keyboard handler for ESC key
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        // On ESC, do immediate cleanup
+        cleanupManager.immediateCleanup();
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // Cleanup on unmount
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════
+  // 🎯 FOCUS RECOVERY ON ROUTE CHANGE
+  // ═══════════════════════════════════════════════════════════
+  
+  useEffect(() => {
+    // Monitor for route changes
+    const handleRouteChange = () => {
       setTimeout(() => {
-        // Remove stuck overlays
-        document.querySelectorAll('[class*="fixed"][class*="inset"]').forEach(el => {
-          if (!el.querySelector('input, button, textarea, select')) {
-            el.remove();
-          }
-        });
-        
-        // Force enable pointer events
-        document.body.style.pointerEvents = 'auto';
-        document.querySelectorAll('*').forEach(el => {
-          if (el.style.pointerEvents === 'none') {
-            el.style.pointerEvents = 'auto';
-          }
-        });
-        
-        // Restore focus
-        document.body.focus();
-        setTimeout(() => document.body.blur(), 50);
-      }, 50);
-      
-      return result;
+        cleanupManager.immediateCleanup();
+        cleanupManager.fixFocus();
+      }, 100);
     };
+
+    // Listen for any navigation
+    window.addEventListener('popstate', handleRouteChange);
     
-    // Override confirm
-    const originalConfirm = window.confirm;
-    window.confirm = function(...args) {
-      const result = originalConfirm.apply(this, args);
-      
-      setTimeout(() => {
-        document.body.style.pointerEvents = 'auto';
-        document.body.focus();
-        setTimeout(() => document.body.blur(), 50);
-      }, 50);
-      
-      return result;
+    // Also monitor for hash changes
+    window.addEventListener('hashchange', handleRouteChange);
+    
+    return () => {
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('hashchange', handleRouteChange);
     };
-    
-    // Cleanup on navigation
-    const handleNavigation = () => {
-      document.body.style.pointerEvents = 'auto';
-      document.querySelectorAll('[class*="fixed"]').forEach(el => {
-        if (!el.closest('[data-permanent]') && !el.querySelector('aside, nav')) {
-          el.remove();
-        }
-      });
-    };
-    
-    window.addEventListener('popstate', handleNavigation);
-    window.addEventListener('hashchange', handleNavigation);
-    
-    // Periodic cleanup every 2 seconds
-    const cleanupInterval = setInterval(() => {
-      // Force enable pointer events
-      if (document.body.style.pointerEvents === 'none') {
-        document.body.style.pointerEvents = 'auto';
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════
+  // 🔍 MONITOR FOR STUCK STATES
+  // ═══════════════════════════════════════════════════════════
+  
+  useEffect(() => {
+    // Check every 2 seconds for stuck states
+    const interval = setInterval(() => {
+      // Check if body is clickable
+      const bodyStyle = window.getComputedStyle(document.body);
+      if (bodyStyle.pointerEvents === 'none') {
+        console.warn('⚠️ Body is not clickable - auto-fixing...');
+        cleanupManager.immediateCleanup();
       }
       
-      // Remove stuck modals
-      document.querySelectorAll('[class*="fixed"][class*="inset-0"][class*="z-50"]').forEach(modal => {
-        // If modal has no interactive elements, remove it
-        if (!modal.querySelector('input:not([disabled]), button:not([disabled]), textarea:not([disabled]), select:not([disabled])')) {
-          console.warn('Removing stuck modal:', modal);
+      // Check for stuck modals
+      const modals = document.querySelectorAll('.fixed.inset-0.bg-black.bg-opacity-75');
+      modals.forEach(modal => {
+        // If modal has no visible content, remove it
+        const hasContent = modal.querySelector('div[class*="bg-gray-800"]');
+        if (!hasContent) {
+          console.warn('⚠️ Removing empty modal overlay');
           modal.remove();
         }
       });
     }, 2000);
     
-    return () => {
-      window.alert = originalAlert;
-      window.confirm = originalConfirm;
-      window.removeEventListener('popstate', handleNavigation);
-      window.removeEventListener('hashchange', handleNavigation);
-      clearInterval(cleanupInterval);
-    };
+    return () => clearInterval(interval);
   }, []);
 
   return (
     <html lang="ar" dir="rtl">
+      <head>
+        <style jsx global>{`
+          /* Ensure body is always interactive */
+          body {
+            pointer-events: auto !important;
+            user-select: auto !important;
+            overflow: auto !important;
+          }
+          
+          /* Prevent any element from blocking the entire screen */
+          .fixed.inset-0:not([data-permanent]) {
+            pointer-events: none;
+          }
+          
+          .fixed.inset-0:not([data-permanent]) > * {
+            pointer-events: auto;
+          }
+          
+          /* Ensure inputs are always accessible */
+          input:not([disabled]),
+          textarea:not([disabled]),
+          select:not([disabled]),
+          button:not([disabled]) {
+            pointer-events: auto !important;
+          }
+        `}</style>
+      </head>
       <body>
         <div className="flex h-screen bg-gray-900" data-permanent="true">
           <aside className="w-64 bg-gray-800 border-l border-gray-700 flex flex-col" data-permanent="true">
@@ -123,7 +146,7 @@ export default function RootLayout({ children }) {
             </div>
           </aside>
 
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-auto" data-main-content="true">
             {children}
           </main>
         </div>
@@ -133,10 +156,18 @@ export default function RootLayout({ children }) {
 }
 
 function NavLink({ href, icon, label }) {
+  // Use cleanupManager for navigation
+  const handleClick = (e) => {
+    e.preventDefault();
+    cleanupManager.immediateCleanup();
+    window.location.href = href;
+  };
+
   return (
     <li>
       <a
         href={href}
+        onClick={handleClick}
         className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition"
       >
         <span className="text-xl">{icon}</span>

@@ -7,10 +7,13 @@
   --foreground: #ededed;
 }
 
-@layer utilities {
-  .bg-gray-750 {
-    background-color: #2d3748;
-  }
+/* ═══════════════════════════════════════════════════════════
+   🎯 CRITICAL: ENSURE ALL ELEMENTS ARE INTERACTIVE
+   ═══════════════════════════════════════════════════════════ */
+
+* {
+  /* Prevent any element from blocking interaction */
+  pointer-events: auto !important;
 }
 
 body {
@@ -19,10 +22,104 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   margin: 0;
   padding: 0;
+  /* CRITICAL: Always allow interaction */
+  pointer-events: auto !important;
+  user-select: auto !important;
+  overflow: auto !important;
+  position: relative;
+  z-index: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   🔥 PREVENT MODAL OVERLAYS FROM BLOCKING
+   ═══════════════════════════════════════════════════════════ */
+
+/* Fixed overlays should not block unless they have content */
+.fixed.inset-0 {
+  /* Allow clicks to pass through the overlay itself */
+  pointer-events: none !important;
+}
+
+/* But allow interaction with modal content */
+.fixed.inset-0 > * {
+  pointer-events: auto !important;
+}
+
+/* Ensure navigation is always clickable */
+aside[data-permanent],
+nav {
+  pointer-events: auto !important;
+  z-index: 10;
+}
+
+/* Main content area always interactive */
+main,
+[data-main-content] {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 1;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   📝 FORM ELEMENTS MUST ALWAYS BE ACCESSIBLE
+   ═══════════════════════════════════════════════════════════ */
+
+input:not([disabled]),
+textarea:not([disabled]),
+select:not([disabled]),
+button:not([disabled]) {
+  pointer-events: auto !important;
+  user-select: auto !important;
+  cursor: text !important;
+  position: relative;
+  z-index: 2;
+}
+
+button:not([disabled]) {
+  cursor: pointer !important;
+}
+
+/* Disabled elements should look disabled but not block */
+input[disabled],
+textarea[disabled],
+select[disabled],
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   🎨 UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  .bg-gray-750 {
+    background-color: #2d3748;
+  }
+  
+  /* Force interactive class */
+  .force-interactive {
+    pointer-events: auto !important;
+    user-select: auto !important;
+  }
+  
+  /* Modal backdrop that doesn't block */
+  .modal-backdrop {
+    pointer-events: none !important;
+  }
+  
+  .modal-backdrop > * {
+    pointer-events: auto !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   📜 SCROLLBAR STYLING
+   ═══════════════════════════════════════════════════════════ */
 
 ::-webkit-scrollbar {
   width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -37,10 +134,98 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #718096;
 }
-body {
+
+/* ═══════════════════════════════════════════════════════════
+   🔧 FOCUS STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Better focus indicators */
+:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+button:focus,
+a:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Remove focus outline for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ⚡ ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Modal animations */
+.modal-enter {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-exit {
+  animation: fadeOut 0.2s ease-out;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   🚨 CRITICAL OVERRIDES - LAST RESORT
+   ═══════════════════════════════════════════════════════════ */
+
+/* Force body to always be interactive - highest specificity */
+html body {
+  pointer-events: auto !important;
+  user-select: auto !important;
+  overflow: auto !important;
+}
+
+/* Ensure no invisible elements can block interaction */
+.invisible,
+.opacity-0 {
+  pointer-events: none !important;
+}
+
+/* But visible elements should always be interactive */
+.visible,
+.opacity-100 {
   pointer-events: auto !important;
 }
 
-body * {
-  pointer-events: auto !important;
+/* ═══════════════════════════════════════════════════════════
+   📱 RESPONSIVE FIXES
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  /* Ensure mobile interaction */
+  body {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  
+  input,
+  textarea,
+  select {
+    font-size: 16px !important; /* Prevent zoom on iOS */
+  }
 }
